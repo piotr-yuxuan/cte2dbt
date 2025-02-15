@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "cte2dbt"
+version = "0.1.0"
+description = "Tools with batteries included to extract CTE from a large SQL query and split them iteratively into dbt models."
+authors = ["piotr-yuxuan <piotr-yuxuan@users.noreply.github.com>"]
+license = "EUPL-1.2"
+readme = "README.md"
+packages = [{ include = "com/github/piotr_yuxuan/cte2dbt", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+pydantic = "^2.10.6"
+sqlglot = "^26.6.0"
+hypothesis = "^6.125.3"
+pytest-watch = "^4.2.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^8.0"
+black = "^24.0"
+mypy = "^1.8"
+isort = "^5.13"
+flake8 = "^7.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
