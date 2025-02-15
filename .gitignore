@@ -1,2 +1,3 @@
 /.hypothesis/
 /dist/
+**/__pycache__
