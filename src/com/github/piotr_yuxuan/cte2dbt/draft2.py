@@ -1,6 +1,5 @@
-from typing import Callable, Dict, List, Tuple, Optional
+from typing import Callable, Dict, List, Tuple
 
-from pydantic import BaseModel
 from sqlglot import exp
 
 
@@ -18,67 +17,93 @@ def is_table_a_cte(
 
 
 def is_table_a_source(
-    replacements: Dict[str, str],
+    cte_names: Dict[str, str],
     table: exp.Table,
 ) -> bool:
-    return has_table_qualified_name(table) and table.name not in replacements
+    # ? Dubious?
+    # return has_table_qualified_name(table) and table.name not in replacements
+    return table.name not in cte_names
 
 
-def replace_table_name(
+def cte_table_fn(
+    replacements: Dict[str, str],
+    cte_table: exp.Table,
+) -> exp.Expression:
+    return exp.Table(
+        this=exp.to_identifier(
+            replacements[cte_table.name],
+            # Not quoting the name can make the SQL
+            # invalid, but we want to insert raw jinja
+            # template ‑ invalid SQL in themselves.
+            quoted=False,
+        ),
+        alias=exp.to_identifier(
+            cte_table.alias if cte_table.alias else cte_table.name,
+        ),
+    )
+
+
+def transform_cte_tables(
     replacements: Dict[str, str],
     expression: exp.Expression,
-    table_cte_fn: Callable = lambda x: x,
-    table_source_fn: Callable = lambda x: x,
-) -> exp.Expression:
-    """Return a deep copy of the expression with table names replaced
-    where appropriate according to the replacements.
-
-    Known bug: this approach doesn't handle nested definitions that
-    shadow one another, for example:
-
-    ``` sql
-    WITH cte1 AS ( -- Outer CTE
-      WITH cte1 AS ( -- Inner CTE
-        SELECT *
-        FROM table
-      )
-      SELECT cte1.*
-      FROM cte1
+):
+    return expression.copy().transform(
+        lambda node: (
+            cte_table_fn(replacements, node)
+            if isinstance(node, exp.Table)
+            and is_table_a_cte(
+                replacements,
+                node,
+            )
+            else node
+        )
     )
-    SELECT cte1.*
-    FROM cte1
-    ```
 
-    In this case it is not correct for the inner FROM to be changed as
-    `FROM stg_cte1 AS cte1`, but that would happen anyway. You would
-    then need to fix the SQL manually, either by renaming the inner
-    CTE in the input, or fixing the output.
 
-    """
+def to_fully_qualified_name(table):
+    fully_qualified_name = ".".join(
+        [
+            segment
+            for segment in [
+                table.db,
+                table.catalog,
+                table.name,
+            ]
+            if segment
+        ]
+    )
+    return fully_qualified_name
 
-    def transformer(node: exp.Expression):
-        transformed = node
-        if isinstance(node, exp.Table):
-            table: exp.Table = node
-            if is_table_a_cte(replacements, table):
-                transformed = exp.Table(
-                    this=exp.to_identifier(
-                        replacements[node.name],
-                        # Not quoting the name can make the SQL
-                        # invalid, but we want to insert raw jinja
-                        # template ‑ invalid SQL in themselves.
-                        quoted=False,
-                    ),
-                    alias=exp.to_identifier(
-                        node.alias if table.alias else node.name,
-                    ),
-                )
-            if is_table_a_source(replacements, table):
-                # Intended to be used to register and replace tables.
-                table_source_fn(table)
-        return transformed
 
-    return expression.copy().transform(transformer)
+def source_table_fn(
+    to_source_name: Callable,
+    source_names: Dict,
+    cte_names: Dict,
+    source_table: exp.Table,
+) -> exp.Expression:
+    fully_qualified_name = to_fully_qualified_name(source_table)
+    if fully_qualified_name not in source_names:
+        source_names[fully_qualified_name] = to_source_name(source_table)
+    return fully_qualified_name
+
+
+def transform_source_tables(
+    to_source_name: Callable,
+    source_names: Dict[str, str],
+    cte_names: Dict[str, str],
+    expression: exp.Expression,
+):
+    return expression.copy().transform(
+        lambda node: (
+            source_table_fn(to_source_name, source_names, cte_names, node)
+            if isinstance(node, exp.Table)
+            and is_table_a_source(
+                cte_names,
+                node,
+            )
+            else node
+        )
+    )
 
 
 def get_cte_name_and_exprs(
@@ -90,22 +115,11 @@ def get_cte_name_and_exprs(
         return []
 
 
-class ModelDefinition(BaseModel):
-    # We could expose the exp.Expression type outside but for the main
-    # entrypoint the API simpler to deal with text. However, as this
-    # stage this is premature optimisation: for exemple, we can't know
-    # if it's always fine to prettyprint the sql.
-    original_id: Optional[str]  # None for the final model
-    renamed_id: str
-    original_sql: str
-    transformed_sql: str
-
-
 def get_all_name_and_exprs(
-    replacement_name: Callable,
+    to_model_name: Callable,
+    to_source_name: Callable,
     final_model_name: str,
     initial_expression: exp.Expression,
-    table_hook_fn: Callable = None,
 ) -> List[Dict]:
     # I'm not very convinced that this API is currently great. I want
     # to favour organic growth for now, but at some point we'll need
@@ -114,38 +128,53 @@ def get_all_name_and_exprs(
     final_select_expr.args.pop("with")
     cte_name_and_exprs = get_cte_name_and_exprs(initial_expression)
 
-    # FIXME: shall we do an actual reduction here, and iteratively
-    # collect replacements? This current implementation is easier to
-    # read but suboptimal.
-    replacements: Dict[str, str] = {
-        name: replacement_name(name) for (name, _) in cte_name_and_exprs
-    }
+    cte_names: Dict[str, str] = dict({})
+    source_names: Dict[str, str] = dict({})
+    result: List[Dict] = list()
 
-    return [
-        {
+    def transform_cte_expr(
+        cte_names,
+        source_names,
+        cte_expr,
+        model_name: str = None,
+        cte_name: str = None,
+    ):
+        if cte_name:
+            cte_names[cte_name] = model_name
+
+        model_expr = cte_expr
+        model_expr = transform_source_tables(
+            to_source_name, source_names, cte_names, model_expr
+        )
+        model_expr = transform_cte_tables(cte_names, cte_expr)
+
+        return {
             "cte_name": cte_name,
             "cte_expr": cte_expr,
-            "model_name": replacement_name(cte_name),
-            "model_expr": replace_table_name(
-                replacements,
+            "model_name": model_name,
+            "model_expr": model_expr,
+        }
+
+    for cte_name, cte_expr in cte_name_and_exprs:
+        model_name = to_model_name(cte_name)
+        result.append(
+            transform_cte_expr(
+                cte_names,
+                source_names,
                 cte_expr,
-                table_hook_fn,
-            ),
-        }
-        for cte_name, cte_expr in cte_name_and_exprs
-    ] + [
-        {
-            # "cte_name": … # Note: no cte name here.
-            "cte_expr": final_select_expr,
-            "model_name": final_model_name,
-            "model_expr": replace_table_name(
-                replacements,
-                final_select_expr,
-                table_hook_fn,
-            ),
-        }
-    ]
+                model_name=model_name,
+                cte_name=cte_name,
+            )
+        )
+    result.append(
+        transform_cte_expr(
+            cte_names,
+            source_names,
+            final_select_expr,
+            model_name=final_model_name,
+        )
+    )
 
-
-def collect_and_replace_source_names():
-    pass
+    print(f"cte_names={cte_names}")
+    print(f"source_names={source_names}")
+    return result

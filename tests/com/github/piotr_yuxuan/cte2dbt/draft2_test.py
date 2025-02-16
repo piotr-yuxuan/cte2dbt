@@ -85,7 +85,7 @@ importlib.reload(draft2)
     ],
 )
 def test_table_name_with_alias_get_replaced(replacements, query_text, expected):
-    actual = draft2.replace_table_name(
+    actual = draft2.transform_cte_tables(
         replacements,
         parse_one(query_text),
     )
