@@ -4,10 +4,31 @@ from pydantic import BaseModel
 from sqlglot import exp
 
 
+def has_table_qualified_name(
+    table: exp.Table,
+) -> bool:
+    return table.db or table.catalog
+
+
+def is_table_a_cte(
+    replacements: Dict[str, str],
+    table: exp.Table,
+) -> bool:
+    return not has_table_qualified_name(table) and table.name in replacements
+
+
+def is_table_a_source(
+    replacements: Dict[str, str],
+    table: exp.Table,
+) -> bool:
+    return has_table_qualified_name(table) and table.name not in replacements
+
+
 def replace_table_name(
-    replacements: Dict,
+    replacements: Dict[str, str],
     expression: exp.Expression,
-    table_hook_fn: Callable = None,
+    table_cte_fn: Callable = lambda x: x,
+    table_source_fn: Callable = lambda x: x,
 ) -> exp.Expression:
     """Return a deep copy of the expression with table names replaced
     where appropriate according to the replacements.
@@ -39,7 +60,7 @@ def replace_table_name(
         transformed = node
         if isinstance(node, exp.Table):
             table: exp.Table = node
-            if not table.db and not table.catalog and table.name in replacements:
+            if is_table_a_cte(replacements, table):
                 transformed = exp.Table(
                     this=exp.to_identifier(
                         replacements[node.name],
@@ -52,9 +73,9 @@ def replace_table_name(
                         node.alias if table.alias else node.name,
                     ),
                 )
-            if table.name not in replacements and table_hook_fn:
+            if is_table_a_source(replacements, table):
                 # Intended to be used to register and replace tables.
-                table_hook_fn(table)
+                table_source_fn(table)
         return transformed
 
     return expression.copy().transform(transformer)
@@ -96,7 +117,9 @@ def get_all_name_and_exprs(
     # FIXME: shall we do an actual reduction here, and iteratively
     # collect replacements? This current implementation is easier to
     # read but suboptimal.
-    replacements = {name: replacement_name(name) for name, _ in cte_name_and_exprs}
+    replacements: Dict[str, str] = {
+        name: replacement_name(name) for (name, _) in cte_name_and_exprs
+    }
 
     return [
         {
@@ -122,3 +145,7 @@ def get_all_name_and_exprs(
             ),
         }
     ]
+
+
+def collect_and_replace_source_names():
+    pass
