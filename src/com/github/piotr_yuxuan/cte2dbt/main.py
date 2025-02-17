@@ -135,7 +135,7 @@ def get_cte_name_expr_tuples(
         return []
 
 
-def _to_model_expr(
+def transform_model_expr(
     cte_names,
     source_names,
     cte_expr,
@@ -181,7 +181,7 @@ def process_expression(
 
     for cte_name, cte_expr in cte_name_and_exprs:
         model_name = to_model_name(cte_name)
-        model_expr, source_names = _to_model_expr(
+        model_expr, source_names = transform_model_expr(
             cte_names,
             source_names,
             cte_expr,
@@ -195,7 +195,7 @@ def process_expression(
             "model_expr": expr_fn(model_expr),
         }
 
-    model_expr, source_names = _to_model_expr(
+    model_expr, source_names = transform_model_expr(
         cte_names,
         source_names,
         final_select_expr,
