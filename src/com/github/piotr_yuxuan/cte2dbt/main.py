@@ -153,9 +153,9 @@ def _to_model_expr(
         source_names,
         to_source_name,
     )
-    model_expr = transform_cte_tables(cte_expr, cte_names)
+    model_expr = transform_cte_tables(model_expr, cte_names)
 
-    return model_expr
+    return model_expr, source_names
 
 
 def process_expression(
@@ -181,31 +181,31 @@ def process_expression(
 
     for cte_name, cte_expr in cte_name_and_exprs:
         model_name = to_model_name(cte_name)
+        model_expr, source_names = _to_model_expr(
+            cte_names,
+            source_names,
+            cte_expr,
+            to_source_name,
+            model_name=model_name,
+            cte_name=cte_name,
+        )
         models[model_name] = {
             "cte_name": cte_name,
             "cte_expr": expr_fn(cte_expr),
-            "model_expr": expr_fn(
-                _to_model_expr(
-                    cte_names,
-                    source_names,
-                    cte_expr,
-                    to_source_name,
-                    model_name=model_name,
-                    cte_name=cte_name,
-                )
-            ),
+            "model_expr": expr_fn(model_expr),
         }
+
+    model_expr, source_names = _to_model_expr(
+        cte_names,
+        source_names,
+        final_select_expr,
+        to_source_name,
+        model_name=parent_model_name,
+    )
+
     models[parent_model_name] = {
         "cte_expr": expr_fn(cte_expr),
-        "model_expr": expr_fn(
-            _to_model_expr(
-                cte_names,
-                source_names,
-                final_select_expr,
-                to_source_name,
-                model_name=parent_model_name,
-            )
-        ),
+        "model_expr": expr_fn(model_expr),
     }
 
     return {
