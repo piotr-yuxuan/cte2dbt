@@ -123,7 +123,6 @@ def transform_source_tables(
             else node
         )
     )
-    print(f"new_source_names={new_source_names}")
     return new_expr, new_source_names
 
 
