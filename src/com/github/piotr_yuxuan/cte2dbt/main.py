@@ -9,7 +9,7 @@ def table_has_qualified_name(
     return bool(table.db or table.catalog)
 
 
-def is_table_a_cte(
+def table_is_a_cte(
     cte_names: Dict[str, str],
     table: exp.Table,
 ) -> bool:
@@ -53,7 +53,7 @@ def transform_cte_tables(
         lambda node: (
             cte_table_fn(node, cte_names)
             if isinstance(node, exp.Table)
-            and is_table_a_cte(
+            and table_is_a_cte(
                 cte_names,
                 node,
             )
