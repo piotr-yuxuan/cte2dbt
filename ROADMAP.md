@@ -7,3 +7,7 @@ classes should be created by a =TableTransformerFactory=.
 These table transformers should be used within another class that
 extracts models, =cte_names=, =source_names= and returns immutable
 data model instances.
+
+## File generation
+
+Ideally we would have a strategy to generate files.

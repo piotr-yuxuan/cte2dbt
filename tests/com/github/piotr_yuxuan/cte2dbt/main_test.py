@@ -338,3 +338,43 @@ def test_transform_source_tables(
 
     assert expected_cte_expr == actual_cte_expr.sql()
     assert expected_source_names == actual_source_names
+
+
+import pprint
+from pathlib import Path
+
+query_file = Path(".") / "tests" / "test_resources" / "nested_subqueries.sql"
+
+with open(query_file, "r") as f:
+    query_text = f.read()
+    expression = parse_one(query_text)
+
+
+def to_source_name(table: exp.Table) -> str:
+    return "{{ source('" + (table.catalog or table.name) + "') }}"
+
+
+def to_model_name(cte_name: str) -> str:
+    return "{{ ref('" + cte_name + "') }}"
+
+
+cte_names = dict()
+source_names = dict()
+extracted_models = main.process_expression(
+    expression,
+    "final_model_name",
+    to_model_name,
+    to_source_name,
+    expr_fn=lambda x: x.sql(pretty=True),
+)
+
+main.write_model_files(Path("target"), extracted_models)
+importlib.reload(main)
+extracted_models
+a = dict({"a": 1, "b": 2, "c": 3})
+
+target_prefix = Path("target")
+for model_name, exprs in extracted_models.models.items():
+    filepath = target_prefix / "staging" / (model_name + ".sql")
+    content = exprs["model_expr"]
+    print(filepath, len(content))

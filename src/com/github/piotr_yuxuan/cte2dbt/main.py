@@ -2,6 +2,7 @@ from typing import Callable, Dict, List, Tuple
 
 from pydantic import BaseModel
 from sqlglot import exp
+from pathlib import Path
 
 
 def table_has_qualified_name(
@@ -192,7 +193,7 @@ def process_expression(
             model_name=model_name,
             cte_name=cte_name,
         )
-        models[model_name] = {
+        models[cte_name] = {
             "cte_name": cte_name,
             "cte_expr": expr_fn(cte_expr),
             "model_expr": expr_fn(model_expr),
@@ -216,3 +217,10 @@ def process_expression(
         source_names=source_names,
         models=models,
     )
+
+
+def write_model_files(target_prefix: Path, extracted_models: ExtractedModels):
+    for model_name, exprs in extracted_models.models.items():
+        filepath = target_prefix / "staging" / model_name
+        content = exprs["model_expr"]
+        print(filepath, len(content))
