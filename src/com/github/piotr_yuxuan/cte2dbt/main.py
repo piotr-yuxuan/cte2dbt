@@ -120,18 +120,17 @@ def transform_source_tables(
     to_source_name: Callable,
 ):
     new_source_names = source_names.copy()
-    new_expr = cte_expr.copy().transform(
-        lambda node: (
-            source_table_fn(node, new_source_names, to_source_name)
-            if isinstance(node, exp.Table)
-            and table_is_a_source(
-                cte_names,
-                node,
-            )
-            else node
-        )
+
+    return (
+        transform_tables(
+            cte_expr,
+            table_predicate=lambda node: table_is_a_source(cte_names, node),
+            table_transform=lambda table: source_table_fn(
+                table, new_source_names, to_source_name
+            ),
+        ),
+        new_source_names,
     )
-    return new_expr, new_source_names
 
 
 def get_cte_name_expr_tuples(
