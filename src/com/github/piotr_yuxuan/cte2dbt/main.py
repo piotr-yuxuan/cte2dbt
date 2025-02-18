@@ -1,5 +1,6 @@
 from typing import Callable, Dict, List, Tuple
 
+from pydantic import BaseModel
 from sqlglot import exp
 
 
@@ -154,13 +155,19 @@ def transform_model_expr(
     return model_expr, source_names
 
 
+class ExtractedModels(BaseModel):
+    cte_names: Dict[str, str] = dict({})
+    source_names: Dict[str, str] = dict({})
+    models: Dict = dict()
+
+
 def process_expression(
     parent_expr: exp.Expression,
     parent_model_name: str,
     to_model_name: Callable,
     to_source_name: Callable,
     expr_fn: Callable = lambda expr: expr,
-) -> List[Dict]:
+) -> ExtractedModels:
     # I'm not very convinced that this API is currently great. I want
     # to favour organic growth for now, but at some point we'll need
     # to check whether we could do better.
@@ -204,8 +211,8 @@ def process_expression(
         "model_expr": expr_fn(model_expr),
     }
 
-    return {
-        "cte_names": cte_names,
-        "source_names": source_names,
-        "models": models,
-    }
+    return ExtractedModels(
+        cte_names=cte_names,
+        source_names=source_names,
+        models=models,
+    )
