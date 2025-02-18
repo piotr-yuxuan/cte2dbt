@@ -71,18 +71,7 @@ def transform_cte_tables(
 
 
 def to_fully_qualified_name(table):
-    fully_qualified_name = ".".join(
-        [
-            segment
-            for segment in [
-                table.db,
-                table.catalog,
-                table.name,
-            ]
-            if segment
-        ]
-    )
-    return fully_qualified_name
+    return ".".join(filter(None, [table.db, table.catalog, table.name]))
 
 
 def source_table_fn(
