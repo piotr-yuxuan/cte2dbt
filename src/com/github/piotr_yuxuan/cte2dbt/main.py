@@ -16,7 +16,7 @@ def table_is_a_cte(
     return not table_has_qualified_name(table) and table.name in cte_names
 
 
-def is_table_a_source(
+def table_is_a_source(
     cte_names: Dict[str, str],
     table: exp.Table,
 ) -> bool:
@@ -116,7 +116,7 @@ def transform_source_tables(
         lambda node: (
             source_table_fn(node, new_source_names, to_source_name)
             if isinstance(node, exp.Table)
-            and is_table_a_source(
+            and table_is_a_source(
                 cte_names,
                 node,
             )

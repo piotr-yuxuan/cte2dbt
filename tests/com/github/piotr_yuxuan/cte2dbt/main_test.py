@@ -142,7 +142,7 @@ def test_is_table_a_cte(cte_names, table: exp.Table, expected):
     ],
 )
 def test_is_table_a_source(cte_names, table: exp.Table, expected):
-    assert expected == main.is_table_a_source(cte_names, table)
+    assert expected == main.table_is_a_source(cte_names, table)
 
 
 @pytest.mark.parametrize(
