@@ -3,7 +3,7 @@ from typing import Callable, Dict, List, Tuple
 from sqlglot import exp
 
 
-def has_table_qualified_name(
+def table_has_qualified_name(
     table: exp.Table,
 ) -> bool:
     return bool(table.db or table.catalog)
@@ -13,7 +13,7 @@ def is_table_a_cte(
     cte_names: Dict[str, str],
     table: exp.Table,
 ) -> bool:
-    return not has_table_qualified_name(table) and table.name in cte_names
+    return not table_has_qualified_name(table) and table.name in cte_names
 
 
 def is_table_a_source(
@@ -22,8 +22,8 @@ def is_table_a_source(
 ) -> bool:
     # ? Dubious?
     # return has_table_qualified_name(table) and table.name not in replacements
-    return (has_table_qualified_name(table)) or not (
-        has_table_qualified_name(table) or table.name in cte_names
+    return (table_has_qualified_name(table)) or not (
+        table_has_qualified_name(table) or table.name in cte_names
     )
 
 

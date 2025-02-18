@@ -9,7 +9,7 @@ importlib.reload(main)
 
 def test_has_table_qualified_name():
     assert (
-        main.has_table_qualified_name(
+        main.table_has_qualified_name(
             exp.Table(
                 db="db",
                 catalog="catalog",
@@ -19,7 +19,7 @@ def test_has_table_qualified_name():
         is True
     )
     assert (
-        main.has_table_qualified_name(
+        main.table_has_qualified_name(
             exp.Table(
                 catalog="catalog",
                 name="name",
@@ -28,7 +28,7 @@ def test_has_table_qualified_name():
         is True
     )
     assert (
-        main.has_table_qualified_name(
+        main.table_has_qualified_name(
             exp.Table(
                 this=exp.to_identifier("name"),
                 alias="alias",
@@ -36,7 +36,7 @@ def test_has_table_qualified_name():
         )
         is False
     )
-    assert main.has_table_qualified_name(exp.Table(name="name")) is False
+    assert main.table_has_qualified_name(exp.Table(name="name")) is False
 
 
 @pytest.mark.parametrize(
