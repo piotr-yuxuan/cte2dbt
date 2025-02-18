@@ -45,20 +45,28 @@ def cte_table_fn(
     )
 
 
+def transform_tables(
+    expr: exp.Expression,
+    table_predicate: Callable[[exp.Table], bool],
+    table_transform: Callable[[exp.Table], exp.Expression],
+):
+    return expr.copy().transform(
+        lambda node: (
+            table_transform(node)
+            if isinstance(node, exp.Table) and table_predicate(node)
+            else node
+        )
+    )
+
+
 def transform_cte_tables(
     cte_expr: exp.Expression,
     cte_names: Dict[str, str],
 ):
-    return cte_expr.copy().transform(
-        lambda node: (
-            cte_table_fn(node, cte_names)
-            if isinstance(node, exp.Table)
-            and table_is_a_cte(
-                cte_names,
-                node,
-            )
-            else node
-        )
+    return transform_tables(
+        cte_expr,
+        table_predicate=lambda node: table_is_a_cte(cte_names, node),
+        table_transform=lambda table: cte_table_fn(table, cte_names),
     )
 
 
