@@ -126,7 +126,7 @@ def transform_source_tables(
 def get_cte_name_expr_tuples(
     select: exp.Select,
 ) -> List[Tuple[str, exp.Expression]]:
-    if isinstance(select.args.get("with"), exp.With):
+    if isinstance(select.args.get("with", None), exp.With):
         return [(cte.alias, cte.this) for cte in select.args.get("with")]
     else:
         return []
@@ -175,7 +175,7 @@ def process_expression(
     # Also, I'm shocked at the argument order in Python, so different
     # from what we would do in Clojure.
     final_select_expr: exp.Expression = parent_expr.copy()
-    final_select_expr.args.pop("with")
+    final_select_expr.args.pop("with", None)
     cte_name_and_exprs = get_cte_name_expr_tuples(parent_expr)
 
     cte_names: Dict[str, str] = dict({})
