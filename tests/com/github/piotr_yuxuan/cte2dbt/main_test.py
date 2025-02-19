@@ -338,3 +338,130 @@ def test_transform_source_tables(
 
     assert expected_cte_expr == actual_cte_expr.sql()
     assert expected_source_names == actual_source_names
+
+
+@pytest.mark.parametrize(
+    "query_text, expected_metadata",
+    [
+        (
+            "SELECT 1",
+            main.Metadata(
+                cte_names={},
+                source_names={},
+                models={
+                    "final_model_name": {
+                        "cte_expr": "SELECT 1",
+                        "model_expr": "SELECT 1",
+                    }
+                },
+            ),
+        ),
+        (
+            "WITH cte1 as (SELECT 1 FROM source1) SELECT * FROM cte1 NATURAL JOIN source2",
+            main.Metadata(
+                cte_names={"cte1": "{{ ref('cte1') }}"},
+                source_names={
+                    "source1": "{{ source('source1') }}",
+                    "source2": "{{ source('source2') }}",
+                },
+                models={
+                    "{{ ref('cte1') }}": {
+                        "cte_name": "cte1",
+                        "cte_expr": "SELECT 1 FROM source1",
+                        "model_expr": "SELECT 1 FROM {{ source('source1') }} AS source1",
+                    },
+                    "final_model_name": {
+                        "cte_expr": "SELECT * FROM cte1 NATURAL JOIN source2",
+                        "model_expr": "SELECT * FROM {{ ref('cte1') }} AS cte1 NATURAL JOIN {{ source('source2') }} AS source2",
+                    },
+                },
+            ),
+        ),
+        (
+            "WITH cte1 as (SELECT 1) SELECT 2",
+            main.Metadata(
+                cte_names={"cte1": "{{ ref('cte1') }}"},
+                source_names={},
+                models={
+                    "{{ ref('cte1') }}": {
+                        "cte_name": "cte1",
+                        "cte_expr": "SELECT 1",
+                        "model_expr": "SELECT 1",
+                    },
+                    "final_model_name": {
+                        "cte_expr": "SELECT 2",
+                        "model_expr": "SELECT 2",
+                    },
+                },
+            ),
+        ),
+        (
+            "WITH cte1 as (SELECT 1) WITH cte2 as (SELECT 1) SELECT 2",
+            main.Metadata(
+                cte_names={"cte1": "{{ ref('cte1') }}", "cte2": "{{ ref('cte2') }}"},
+                source_names={},
+                models={
+                    "{{ ref('cte1') }}": {
+                        "cte_name": "cte1",
+                        "cte_expr": "SELECT 1",
+                        "model_expr": "SELECT 1",
+                    },
+                    "{{ ref('cte2') }}": {
+                        "cte_name": "cte2",
+                        "cte_expr": "SELECT 1",
+                        "model_expr": "SELECT 1",
+                    },
+                    "final_model_name": {
+                        "cte_expr": "SELECT 2",
+                        "model_expr": "SELECT 2",
+                    },
+                },
+            ),
+        ),
+        (
+            # Ideally we would walk through deeper CTE and use a file
+            # path strategy to keep code organised.
+            "WITH cte1 as (WITH cte2 as (SELECT 1) SELECT 2) SELECT 3",
+            main.Metadata(
+                cte_names={"cte1": "{{ ref('cte1') }}"},
+                source_names={},
+                models={
+                    "{{ ref('cte1') }}": {
+                        "cte_name": "cte1",
+                        "cte_expr": "WITH cte2 AS (SELECT 1) SELECT 2",
+                        "model_expr": "WITH cte2 AS (SELECT 1) SELECT 2",
+                    },
+                    "final_model_name": {
+                        "cte_expr": "SELECT 3",
+                        "model_expr": "SELECT 3",
+                    },
+                },
+            ),
+        ),
+    ],
+)
+def test_refactoring_process_expression(
+    query_text: str,
+    expected_metadata: main.Metadata,
+):
+    """The goal of this non-unit test is to hepl the rewriting by
+    making sure the former main interface keeps correct while its
+    internals are being rewritten.
+
+    It also serves as usage example.
+
+    """
+
+    def to_source_name(table: exp.Table) -> str:
+        return f"{{{{ source('{table.catalog or table.name}') }}}}"
+
+    def to_model_name(cte_name: str) -> str:
+        return f"{{{{ ref('{cte_name}') }}}}"
+
+    assert expected_metadata == main.process_expression(
+        parse_one(query_text),
+        "final_model_name",
+        to_model_name,
+        to_source_name,
+        expr_fn=lambda x: x.sql(pretty=False),
+    )
