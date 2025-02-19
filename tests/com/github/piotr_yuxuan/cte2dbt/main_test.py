@@ -357,6 +357,27 @@ def test_transform_source_tables(
             ),
         ),
         (
+            "WITH cte1 as (SELECT 1 FROM source1) SELECT * FROM cte1 NATURAL JOIN source2",
+            main.Metadata(
+                cte_names={"cte1": "{{ ref('cte1') }}"},
+                source_names={
+                    "source1": "{{ source('source1') }}",
+                    "source2": "{{ source('source2') }}",
+                },
+                models={
+                    "{{ ref('cte1') }}": {
+                        "cte_name": "cte1",
+                        "cte_expr": "SELECT 1 FROM source1",
+                        "model_expr": "SELECT 1 FROM {{ source('source1') }} AS source1",
+                    },
+                    "final_model_name": {
+                        "cte_expr": "SELECT * FROM cte1 NATURAL JOIN source2",
+                        "model_expr": "SELECT * FROM {{ ref('cte1') }} AS cte1 NATURAL JOIN {{ source('source2') }} AS source2",
+                    },
+                },
+            ),
+        ),
+        (
             "WITH cte1 as (SELECT 1) SELECT 2",
             main.Metadata(
                 cte_names={"cte1": "{{ ref('cte1') }}"},
@@ -432,7 +453,7 @@ def test_refactoring_process_expression(
     """
 
     def to_source_name(table: exp.Table) -> str:
-        return "{{{{ source('{table.catalog or table.name}') }}}}"
+        return f"{{{{ source('{table.catalog or table.name}') }}}}"
 
     def to_model_name(cte_name: str) -> str:
         return f"{{{{ ref('{cte_name}') }}}}"

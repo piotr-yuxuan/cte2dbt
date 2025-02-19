@@ -133,31 +133,6 @@ def get_cte_name_expr_tuples(
         return []
 
 
-def transform_model_expr(
-    cte_names,
-    source_names,
-    cte_expr,
-    to_source_name,
-    model_name,
-    cte_name: str = None,
-):
-    if cte_name:
-        cte_names[cte_name] = model_name
-
-    source_extractor = SourceMetadataExtractor(
-        cte_names,
-        source_names,
-        to_source_name,
-    )
-    cte_extractor = CTEMetadataExtractor(cte_names)
-
-    model_expr = cte_expr
-    model_expr = source_extractor.extract(model_expr)
-    model_expr = cte_extractor.extract(model_expr)
-
-    return model_expr, source_extractor.source_names
-
-
 class Metadata(BaseModel):
     cte_names: Dict[str, str] = dict({})
     source_names: Dict[str, str] = dict({})
@@ -250,41 +225,36 @@ def process_expression(
     final_select_expr.args.pop("with", None)
     cte_name_and_exprs = get_cte_name_expr_tuples(parent_expr)
 
-    cte_names: Dict[str, str] = dict({})
-    source_names: Dict[str, str] = dict({})
+    cte_names: Dict[str, str] = {
+        cte_name: to_model_name(cte_name) for cte_name, _ in cte_name_and_exprs
+    }
+
     models: Dict = dict()
 
+    source_extractor = SourceMetadataExtractor(
+        cte_names,
+        rewrite_name=to_source_name,
+    )
+    cte_extractor = CTEMetadataExtractor(cte_names)
+
     for cte_name, cte_expr in cte_name_and_exprs:
-        model_name = to_model_name(cte_name)
-        model_expr, source_names = transform_model_expr(
-            cte_names,
-            source_names,
-            cte_expr,
-            to_source_name,
-            model_name=model_name,
-            cte_name=cte_name,
-        )
-        models[model_name] = {
+        models[cte_names[cte_name]] = {
             "cte_name": cte_name,
             "cte_expr": expr_fn(cte_expr),
-            "model_expr": expr_fn(model_expr),
+            "model_expr": expr_fn(
+                cte_extractor.extract(source_extractor.extract(cte_expr))
+            ),
         }
-
-    model_expr, source_names = transform_model_expr(
-        cte_names,
-        source_names,
-        final_select_expr,
-        to_source_name,
-        model_name=parent_model_name,
-    )
 
     models[parent_model_name] = {
         "cte_expr": expr_fn(final_select_expr),
-        "model_expr": expr_fn(model_expr),
+        "model_expr": expr_fn(
+            cte_extractor.extract(source_extractor.extract(final_select_expr))
+        ),
     }
 
     return Metadata(
         cte_names=cte_names,
-        source_names=source_names,
+        source_names=source_extractor.source_names,
         models=models,
     )
