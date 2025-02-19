@@ -207,7 +207,7 @@ def process_expression(
     )
 
     models[parent_model_name] = {
-        "cte_expr": expr_fn(cte_expr),
+        "cte_expr": expr_fn(final_select_expr),
         "model_expr": expr_fn(model_expr),
     }
 
