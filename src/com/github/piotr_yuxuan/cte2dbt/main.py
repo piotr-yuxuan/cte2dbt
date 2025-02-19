@@ -155,7 +155,7 @@ def transform_model_expr(
     return model_expr, source_names
 
 
-class ExtractedModels(BaseModel):
+class Metadata(BaseModel):
     cte_names: Dict[str, str] = dict({})
     source_names: Dict[str, str] = dict({})
     models: Dict = dict()
@@ -167,7 +167,7 @@ def process_expression(
     to_model_name: Callable,
     to_source_name: Callable,
     expr_fn: Callable = lambda expr: expr,
-) -> ExtractedModels:
+) -> Metadata:
     # I'm not very convinced that this API is currently great. I want
     # to favour organic growth for now, but at some point we'll need
     # to check whether we could do better.
@@ -211,7 +211,7 @@ def process_expression(
         "model_expr": expr_fn(model_expr),
     }
 
-    return ExtractedModels(
+    return Metadata(
         cte_names=cte_names,
         source_names=source_names,
         models=models,
