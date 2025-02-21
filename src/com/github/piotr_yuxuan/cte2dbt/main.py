@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, List, Tuple, Iterator, Any, TypeVar
+from itertools import chain
+from typing import Callable, Dict, Iterator, Tuple, TypeVar
 
 from pydantic import BaseModel
 from sqlglot import exp
-from itertools import chain
 
 
 def table_has_qualified_name(
