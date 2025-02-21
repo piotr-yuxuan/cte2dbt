@@ -302,7 +302,7 @@ class MetadataProvider:
         return iter(self.source_extractor.dbt_source_blocks.items())
 
     def iter_dbt_models(self) -> Iterator[Tuple[str, exp.Expression]]:
-        """Process CTEs and yield (dbt_ref_block, model_expr)."""
+        """Yield instances of DbtModel."""
         final_select_expr = self.expr.copy()
         final_select_expr.args.pop("with", None)
 
