@@ -132,7 +132,7 @@ def iter_cte_tuples(
         yield from ((cte.alias, cte.this) for cte in with_expr)
 
 
-class Metadata(BaseModel):
+class MetadataDeprecated(BaseModel):
     dbt_ref_blocks: Dict[str, str] = dict({})
     dbt_source_blocks: Dict[str, str] = dict({})
     models: Dict = dict()
@@ -216,7 +216,7 @@ def process_expression(
     to_dbt_source_block: Callable[[exp.Table], str],
     # Quite impure, intended mostly for tests.
     expr_fn: Callable = lambda expr: expr,
-) -> Metadata:
+) -> MetadataDeprecated:
     final_select_expr: exp.Expression = parent_expr.copy()
     final_select_expr.args.pop("with", None)
     cte_name_and_exprs = iter_cte_tuples(parent_expr)
@@ -248,7 +248,7 @@ def process_expression(
         "model_expr": expr_fn(model_expr),
     }
 
-    return Metadata(
+    return MetadataDeprecated(
         dbt_ref_blocks=cte_extractor.dbt_ref_blocks,
         dbt_source_blocks=source_extractor.dbt_source_blocks,
         models=models,

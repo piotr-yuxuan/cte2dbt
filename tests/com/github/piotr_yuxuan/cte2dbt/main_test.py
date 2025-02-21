@@ -345,7 +345,7 @@ def test_transform_source_tables(
     [
         (
             "SELECT 1",
-            main.Metadata(
+            main.MetadataDeprecated(
                 dbt_ref_blocks={},
                 dbt_source_blocks={},
                 models={
@@ -358,7 +358,7 @@ def test_transform_source_tables(
         ),
         (
             "WITH cte1 as (SELECT 1 FROM source1) SELECT * FROM cte1 NATURAL JOIN source2",
-            main.Metadata(
+            main.MetadataDeprecated(
                 dbt_ref_blocks={"cte1": "{{ ref('cte1') }}"},
                 dbt_source_blocks={
                     "source1": "{{ source('source1') }}",
@@ -379,7 +379,7 @@ def test_transform_source_tables(
         ),
         (
             "WITH cte1 as (SELECT 1) SELECT 2",
-            main.Metadata(
+            main.MetadataDeprecated(
                 dbt_ref_blocks={"cte1": "{{ ref('cte1') }}"},
                 dbt_source_blocks={},
                 models={
@@ -397,7 +397,7 @@ def test_transform_source_tables(
         ),
         (
             "WITH cte1 as (SELECT 1) WITH cte2 as (SELECT 1) SELECT 2",
-            main.Metadata(
+            main.MetadataDeprecated(
                 dbt_ref_blocks={
                     "cte1": "{{ ref('cte1') }}",
                     "cte2": "{{ ref('cte2') }}",
@@ -425,7 +425,7 @@ def test_transform_source_tables(
             # Ideally we would walk through deeper CTE and use a file
             # path strategy to keep code organised.
             "WITH cte1 as (WITH cte2 as (SELECT 1) SELECT 2) SELECT 3",
-            main.Metadata(
+            main.MetadataDeprecated(
                 dbt_ref_blocks={"cte1": "{{ ref('cte1') }}"},
                 dbt_source_blocks={},
                 models={
@@ -445,7 +445,7 @@ def test_transform_source_tables(
 )
 def test_refactoring_process_expression(
     query_text: str,
-    expected_metadata: main.Metadata,
+    expected_metadata: main.MetadataDeprecated,
 ):
     """The goal of this non-unit test is to hepl the rewriting by
     making sure the former main interface keeps correct while its
