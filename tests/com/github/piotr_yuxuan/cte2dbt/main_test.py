@@ -283,14 +283,14 @@ def test_transform_source_tables_implicit_source_names(
     expected_cte_expr,
     expected_source_names,
 ):
-    def to_source_name(table: exp.Table) -> str:
+    def to_dbt_source_block(table: exp.Table) -> str:
         return "{{ source('" + (table.catalog or table.name) + "') }}"
 
     actual_cte_expr, actual_source_names = main.transform_source_tables(
         cte_expr=parse_one(query_text),
-        cte_names=dict(),
-        source_names=dict(),
-        to_source_name=to_source_name,
+        dbt_ref_blocks=dict(),
+        dbt_source_blocks=dict(),
+        to_dbt_source_block=to_dbt_source_block,
     )
 
     assert expected_cte_expr == actual_cte_expr.sql()
@@ -298,7 +298,7 @@ def test_transform_source_tables_implicit_source_names(
 
 
 @pytest.mark.parametrize(
-    "query_text, source_names, expected_cte_expr, expected_source_names",
+    "query_text, dbt_source_blocks, expected_cte_expr, expected_source_names",
     [
         (
             "SELECT 1 FROM db.catalog.table",
@@ -322,18 +322,18 @@ def test_transform_source_tables_implicit_source_names(
 )
 def test_transform_source_tables(
     query_text,
-    source_names,
+    dbt_source_blocks,
     expected_cte_expr,
     expected_source_names,
 ):
-    def to_source_name(table: exp.Table) -> str:
+    def to_dbt_source_block(table: exp.Table) -> str:
         return "{{ source('" + (table.catalog or table.name) + "') }}"
 
     actual_cte_expr, actual_source_names = main.transform_source_tables(
         cte_expr=parse_one(query_text),
-        cte_names=dict(),
-        source_names=source_names,
-        to_source_name=to_source_name,
+        dbt_ref_blocks=dict(),
+        dbt_source_blocks=dbt_source_blocks,
+        to_dbt_source_block=to_dbt_source_block,
     )
 
     assert expected_cte_expr == actual_cte_expr.sql()
@@ -346,8 +346,8 @@ def test_transform_source_tables(
         (
             "SELECT 1",
             main.Metadata(
-                cte_names={},
-                source_names={},
+                dbt_ref_blocks={},
+                dbt_source_blocks={},
                 models={
                     "final_model_name": {
                         "cte_expr": "SELECT 1",
@@ -359,8 +359,8 @@ def test_transform_source_tables(
         (
             "WITH cte1 as (SELECT 1 FROM source1) SELECT * FROM cte1 NATURAL JOIN source2",
             main.Metadata(
-                cte_names={"cte1": "{{ ref('cte1') }}"},
-                source_names={
+                dbt_ref_blocks={"cte1": "{{ ref('cte1') }}"},
+                dbt_source_blocks={
                     "source1": "{{ source('source1') }}",
                     "source2": "{{ source('source2') }}",
                 },
@@ -380,8 +380,8 @@ def test_transform_source_tables(
         (
             "WITH cte1 as (SELECT 1) SELECT 2",
             main.Metadata(
-                cte_names={"cte1": "{{ ref('cte1') }}"},
-                source_names={},
+                dbt_ref_blocks={"cte1": "{{ ref('cte1') }}"},
+                dbt_source_blocks={},
                 models={
                     "{{ ref('cte1') }}": {
                         "cte_name": "cte1",
@@ -398,8 +398,11 @@ def test_transform_source_tables(
         (
             "WITH cte1 as (SELECT 1) WITH cte2 as (SELECT 1) SELECT 2",
             main.Metadata(
-                cte_names={"cte1": "{{ ref('cte1') }}", "cte2": "{{ ref('cte2') }}"},
-                source_names={},
+                dbt_ref_blocks={
+                    "cte1": "{{ ref('cte1') }}",
+                    "cte2": "{{ ref('cte2') }}",
+                },
+                dbt_source_blocks={},
                 models={
                     "{{ ref('cte1') }}": {
                         "cte_name": "cte1",
@@ -423,8 +426,8 @@ def test_transform_source_tables(
             # path strategy to keep code organised.
             "WITH cte1 as (WITH cte2 as (SELECT 1) SELECT 2) SELECT 3",
             main.Metadata(
-                cte_names={"cte1": "{{ ref('cte1') }}"},
-                source_names={},
+                dbt_ref_blocks={"cte1": "{{ ref('cte1') }}"},
+                dbt_source_blocks={},
                 models={
                     "{{ ref('cte1') }}": {
                         "cte_name": "cte1",
@@ -452,16 +455,16 @@ def test_refactoring_process_expression(
 
     """
 
-    def to_source_name(table: exp.Table) -> str:
-        return f"{{{{ source('{table.catalog or table.name}') }}}}"
-
-    def to_model_name(cte_name: str) -> str:
+    def to_dbt_ref_block(cte_name: str) -> str:
         return f"{{{{ ref('{cte_name}') }}}}"
+
+    def to_dbt_source_block(table: exp.Table) -> str:
+        return f"{{{{ source('{table.catalog or table.name}') }}}}"
 
     assert expected_metadata == main.process_expression(
         parse_one(query_text),
         "final_model_name",
-        to_model_name,
-        to_source_name,
+        to_dbt_ref_block,
+        to_dbt_source_block,
         expr_fn=lambda x: x.sql(pretty=False),
     )

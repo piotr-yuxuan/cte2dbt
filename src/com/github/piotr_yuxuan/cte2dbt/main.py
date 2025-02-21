@@ -63,23 +63,23 @@ def transform_tables(
 
 def transform_cte_tables(
     cte_expr: exp.Expression,
-    cte_names: Dict[str, str],
+    dbt_ref_blocks: Dict[str, str],
 ):
     return transform_tables(
         cte_expr,
-        table_predicate=lambda node: table_is_a_cte(cte_names, node),
-        table_transform=lambda table: cte_table_fn(table, cte_names),
+        table_predicate=lambda node: table_is_a_cte(dbt_ref_blocks, node),
+        table_transform=lambda table: cte_table_fn(table, dbt_ref_blocks),
     )
 
 
-def to_fully_qualified_name(table):
+def to_fully_qualified_name(table) -> str:
     return ".".join(filter(None, [table.db, table.catalog, table.name]))
 
 
 def source_table_fn(
     source_table: exp.Table,
-    source_names: Dict,
-    to_source_name: Callable,
+    dbt_source_blocks: Dict,
+    to_dbt_source_block: Callable,
 ) -> exp.Expression:
     """Beware: because of the walk pattern used, this function uses
     mutable arguments.
@@ -87,12 +87,12 @@ def source_table_fn(
     """
     fully_qualified_name = to_fully_qualified_name(source_table)
 
-    if fully_qualified_name not in source_names:
-        source_names[fully_qualified_name] = to_source_name(source_table)
+    if fully_qualified_name not in dbt_source_blocks:
+        dbt_source_blocks[fully_qualified_name] = to_dbt_source_block(source_table)
 
     return exp.Table(
         this=exp.to_identifier(
-            source_names[fully_qualified_name],
+            dbt_source_blocks[fully_qualified_name],
             # Not quoting the name can make the SQL
             # invalid, but we want to insert raw jinja
             # template ‑ invalid SQL in themselves.
@@ -106,18 +106,18 @@ def source_table_fn(
 
 def transform_source_tables(
     cte_expr: exp.Expression,
-    cte_names: Dict[str, str],
-    source_names: Dict[str, str],
-    to_source_name: Callable,
+    dbt_ref_blocks: Dict[str, str],
+    dbt_source_blocks: Dict[str, str],
+    to_dbt_source_block: Callable,
 ):
-    new_source_names = source_names.copy()
+    new_source_names = dbt_source_blocks.copy()
 
     return (
         transform_tables(
             cte_expr,
-            table_predicate=lambda node: table_is_a_source(cte_names, node),
+            table_predicate=lambda node: table_is_a_source(dbt_ref_blocks, node),
             table_transform=lambda table: source_table_fn(
-                table, new_source_names, to_source_name
+                table, new_source_names, to_dbt_source_block
             ),
         ),
         new_source_names,
@@ -134,8 +134,8 @@ def get_cte_name_expr_tuples(
 
 
 class Metadata(BaseModel):
-    cte_names: Dict[str, str] = dict({})
-    source_names: Dict[str, str] = dict({})
+    dbt_ref_blocks: Dict[str, str] = dict({})
+    dbt_source_blocks: Dict[str, str] = dict({})
     models: Dict = dict()
 
 
@@ -144,59 +144,61 @@ class MetadataExtractor(ABC):
 
     def __init__(
         self,
-        cte_names: Dict[str, str] = None,
+        dbt_ref_blocks: Dict[str, str] = None,
     ):
-        self.cte_names: Dict[str, str] = cte_names.copy() if cte_names else dict()
+        self.dbt_ref_blocks: Dict[str, str] = (
+            dbt_ref_blocks.copy() if dbt_ref_blocks else dict()
+        )
 
     @abstractmethod
     def extract(self, sql_expression: exp.Expression) -> exp.Expression: ...
 
 
 class CTEMetadataExtractor(MetadataExtractor):
-    def __init__(self, cte_names: Dict[str, str] = None):
-        super().__init__(cte_names)
+    def __init__(self, dbt_ref_blocks: Dict[str, str] = None):
+        super().__init__(dbt_ref_blocks)
 
     def extract(self, sql_expression: exp.Expression) -> exp.Expression:
         return transform_tables(
             sql_expression,
-            table_predicate=lambda node: table_is_a_cte(self.cte_names, node),
-            table_transform=lambda table: cte_table_fn(table, self.cte_names),
+            table_predicate=lambda node: table_is_a_cte(self.dbt_ref_blocks, node),
+            table_transform=lambda table: cte_table_fn(table, self.dbt_ref_blocks),
         )
 
 
 class SourceMetadataExtractor(MetadataExtractor):
     def __init__(
         self,
-        cte_names: Dict[str, str] = None,
-        source_names: Dict[str, str] = None,
-        rewrite_name: Callable[[exp.Table], str] = None,
+        dbt_ref_blocks: Dict[str, str] = None,
+        dbt_source_blocks: Dict[str, str] = None,
+        to_dbt_source_block: Callable[[exp.Table], str] = None,
     ):
-        super().__init__(cte_names)
-        self.source_names: Dict[str, str] = (
-            source_names.copy() if source_names else dict()
+        super().__init__(dbt_ref_blocks)
+        self.dbt_source_blocks: Dict[str, str] = (
+            dbt_source_blocks.copy() if dbt_source_blocks else dict()
         )
 
         def noop(s: str):
             return s
 
-        self.rewrite_name: Callable[[str], str] = rewrite_name or noop
+        self.to_dbt_source_block: Callable[[str], str] = to_dbt_source_block or noop
 
     def extract(self, sql_expression: exp.Expression) -> exp.Expression:
         return transform_tables(
             sql_expression,
-            table_predicate=lambda node: table_is_a_source(self.cte_names, node),
+            table_predicate=lambda node: table_is_a_source(self.dbt_ref_blocks, node),
             table_transform=lambda table: self.table_transform(table),
         )
 
     def table_transform(self, source_table: exp.Table) -> exp.Expression:
-        fully_qualified_name = to_fully_qualified_name(source_table)
+        source_name: str = to_fully_qualified_name(source_table)
 
-        if fully_qualified_name not in self.source_names:
-            self.source_names[fully_qualified_name] = self.rewrite_name(source_table)
+        if source_name not in self.dbt_ref_blocks:
+            self.dbt_source_blocks[source_name] = self.to_dbt_source_block(source_table)
 
         return exp.Table(
             this=exp.to_identifier(
-                self.source_names[fully_qualified_name],
+                self.dbt_source_blocks[source_name],
                 # Not quoting the name can make the SQL
                 # invalid, but we want to insert raw jinja
                 # template ‑ invalid SQL in themselves.
@@ -211,8 +213,8 @@ class SourceMetadataExtractor(MetadataExtractor):
 def process_expression(
     parent_expr: exp.Expression,
     parent_model_name: str,
-    to_model_name: Callable[[str], str],
-    to_source_name: Callable[[exp.Table], str],
+    to_dbt_ref_block: Callable[[str], str],
+    to_dbt_source_block: Callable[[exp.Table], str],
     # Quite unpure, intended mostly for tests.
     expr_fn: Callable = lambda expr: expr,
 ) -> Metadata:
@@ -222,16 +224,15 @@ def process_expression(
 
     models: Dict = dict()
 
-    source_extractor = SourceMetadataExtractor(
-        rewrite_name=to_source_name,
-    )
+    source_extractor = SourceMetadataExtractor(to_dbt_source_block=to_dbt_source_block)
     cte_extractor = CTEMetadataExtractor()
 
     for cte_name, cte_expr in cte_name_and_exprs:
-        model_name = to_model_name(cte_name)
-        source_extractor.cte_names[cte_name] = model_name
-        cte_extractor.cte_names[cte_name] = model_name
-        models[model_name] = {
+        dbt_ref_block = to_dbt_ref_block(cte_name)
+        # Duplicate code because we do not share mutable object.
+        source_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
+        cte_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
+        models[dbt_ref_block] = {
             "cte_name": cte_name,
             "cte_expr": expr_fn(cte_expr),
             "model_expr": expr_fn(
@@ -247,7 +248,7 @@ def process_expression(
     }
 
     return Metadata(
-        cte_names=cte_extractor.cte_names,
-        source_names=source_extractor.source_names,
+        dbt_ref_blocks=cte_extractor.dbt_ref_blocks,
+        dbt_source_blocks=source_extractor.dbt_source_blocks,
         models=models,
     )
