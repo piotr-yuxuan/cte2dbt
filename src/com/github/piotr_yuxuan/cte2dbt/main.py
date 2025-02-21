@@ -292,11 +292,13 @@ class MetadataProvider:
 
     def iter_sources(self) -> Iterator[str]:
         """Yield source table names from the extracted sources."""
-        # Avoid a complex API with dependent iterators.
-        list(self.iter_model_tuples())
+        # Realise the dependent iterator so as to avoid a complex API
+        # with dependent iterators.
+        for _ in self.iter_dbt_models():
+            pass
         return iter(self.source_extractor.dbt_source_blocks.items())
 
-    def iter_model_tuples(self) -> Iterator[Tuple[str, exp.Expression]]:
+    def iter_dbt_models(self) -> Iterator[Tuple[str, exp.Expression]]:
         """Process CTEs and yield (dbt_ref_block, model_expr)."""
         final_select_expr = self.expr.copy()
         final_select_expr.args.pop("with", None)
