@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple, Iterator
 
 from pydantic import BaseModel
 from sqlglot import exp
@@ -124,13 +124,11 @@ def transform_source_tables(
     )
 
 
-def get_cte_name_expr_tuples(
+def iter_cte_tuples(
     select: exp.Select,
-) -> List[Tuple[str, exp.Expression]]:
-    if isinstance(select.args.get("with", None), exp.With):
-        return [(cte.alias, cte.this) for cte in select.args.get("with")]
-    else:
-        return []
+) -> Iterator[Tuple[str, exp.Expression]]:
+    if with_expr := select.args.get("with", None):
+        yield from ((cte.alias, cte.this) for cte in with_expr)
 
 
 class Metadata(BaseModel):
@@ -220,7 +218,7 @@ def process_expression(
 ) -> Metadata:
     final_select_expr: exp.Expression = parent_expr.copy()
     final_select_expr.args.pop("with", None)
-    cte_name_and_exprs = get_cte_name_expr_tuples(parent_expr)
+    cte_name_and_exprs = iter_cte_tuples(parent_expr)
 
     models: Dict = dict()
 

@@ -250,7 +250,7 @@ def test_table_name_with_alias_get_replaced(cte_names, query_text, expected):
 def test_get_name_and_text_for_all_cte(query_text, expected_names):
     assert expected_names == [
         name
-        for name, _ in main.get_cte_name_expr_tuples(
+        for name, _ in main.iter_cte_tuples(
             parse_one(
                 query_text,
             )
