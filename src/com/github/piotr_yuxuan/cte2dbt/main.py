@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, List, Tuple, Iterator, Any
+from typing import Callable, Dict, List, Tuple, Iterator, Any, TypeVar
 
 from pydantic import BaseModel
 from sqlglot import exp
@@ -255,13 +255,16 @@ def process_expression(
     )
 
 
+T = TypeVar("T")
+
+
 class DbtModel(
     BaseModel,
     frozen=True,
 ):
     name: str
-    cte_expr: Any
-    model_expr: Any
+    cte_expr: T
+    model_expr: T
 
 
 class MetadataProvider:
@@ -272,7 +275,7 @@ class MetadataProvider:
         to_dbt_ref_block: Callable[[str], str],
         to_dbt_source_block: Callable[[exp.Table], str],
         # Quite impure, intended mostly for tests.
-        expr_fn: Callable = lambda expr: expr,
+        expr_fn: Callable[[exp.Expression], T] = lambda expr: expr,
     ):
         self.expr = expr
         self.model_name = model_name
