@@ -228,23 +228,25 @@ def process_expression(
     cte_extractor = CTEMetadataExtractor()
 
     for cte_name, cte_expr in cte_name_and_exprs:
+        model_expr = cte_expr
         dbt_ref_block = to_dbt_ref_block(cte_name)
-        # Duplicate code because we do not share mutable object.
         source_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
+        model_expr = source_extractor.extract(cte_expr)
         cte_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
+        model_expr = cte_extractor.extract(model_expr)
+
         models[dbt_ref_block] = {
             "cte_name": cte_name,
             "cte_expr": expr_fn(cte_expr),
-            "model_expr": expr_fn(
-                cte_extractor.extract(source_extractor.extract(cte_expr))
-            ),
+            "model_expr": expr_fn(model_expr),
         }
 
+    model_expr = final_select_expr
+    model_expr = source_extractor.extract(final_select_expr)
+    model_expr = cte_extractor.extract(model_expr)
     models[parent_model_name] = {
         "cte_expr": expr_fn(final_select_expr),
-        "model_expr": expr_fn(
-            cte_extractor.extract(source_extractor.extract(final_select_expr))
-        ),
+        "model_expr": expr_fn(model_expr),
     }
 
     return Metadata(
