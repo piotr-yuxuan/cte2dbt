@@ -211,34 +211,27 @@ class SourceMetadataExtractor(MetadataExtractor):
 def process_expression(
     parent_expr: exp.Expression,
     parent_model_name: str,
-    to_model_name: Callable,
-    to_source_name: Callable,
+    to_model_name: Callable[[str], str],
+    to_source_name: Callable[[exp.Table], str],
+    # Quite unpure, intended mostly for tests.
     expr_fn: Callable = lambda expr: expr,
 ) -> Metadata:
-    # I'm not very convinced that this API is currently great. I want
-    # to favour organic growth for now, but at some point we'll need
-    # to check whether we could do better.
-    #
-    # Also, I'm shocked at the argument order in Python, so different
-    # from what we would do in Clojure.
     final_select_expr: exp.Expression = parent_expr.copy()
     final_select_expr.args.pop("with", None)
     cte_name_and_exprs = get_cte_name_expr_tuples(parent_expr)
 
-    cte_names: Dict[str, str] = {
-        cte_name: to_model_name(cte_name) for cte_name, _ in cte_name_and_exprs
-    }
-
     models: Dict = dict()
 
     source_extractor = SourceMetadataExtractor(
-        cte_names,
         rewrite_name=to_source_name,
     )
-    cte_extractor = CTEMetadataExtractor(cte_names)
+    cte_extractor = CTEMetadataExtractor()
 
     for cte_name, cte_expr in cte_name_and_exprs:
-        models[cte_names[cte_name]] = {
+        model_name = to_model_name(cte_name)
+        source_extractor.cte_names[cte_name] = model_name
+        cte_extractor.cte_names[cte_name] = model_name
+        models[model_name] = {
             "cte_name": cte_name,
             "cte_expr": expr_fn(cte_expr),
             "model_expr": expr_fn(
@@ -254,7 +247,7 @@ def process_expression(
     }
 
     return Metadata(
-        cte_names=cte_names,
+        cte_names=cte_extractor.cte_names,
         source_names=source_extractor.source_names,
         models=models,
     )
