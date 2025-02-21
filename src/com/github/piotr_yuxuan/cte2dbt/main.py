@@ -307,10 +307,9 @@ class MetadataProvider:
             self.iter_cte_tuples(),
             [(self.model_name, final_select_expr)],
         ):
-            if cte_name:
-                dbt_ref_block = self.to_dbt_ref_block(cte_name)
-                self.source_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
-                self.cte_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
+            dbt_ref_block = self.to_dbt_ref_block(cte_name)
+            self.source_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
+            self.cte_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
 
             model_expr = cte_expr
             model_expr = self.source_extractor.extract(model_expr)
