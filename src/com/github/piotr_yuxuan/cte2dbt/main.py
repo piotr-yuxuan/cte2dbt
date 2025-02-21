@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, List, Tuple, Iterator
+from typing import Callable, Dict, List, Tuple, Iterator, Any
 
 from pydantic import BaseModel
 from sqlglot import exp
@@ -255,6 +255,15 @@ def process_expression(
     )
 
 
+class DbtModel(
+    BaseModel,
+    frozen=True,
+):
+    name: str
+    cte_expr: Any
+    model_expr: Any
+
+
 class MetadataProvider:
     def __init__(
         self,
@@ -305,8 +314,8 @@ class MetadataProvider:
             model_expr = self.source_extractor.extract(model_expr)
             model_expr = self.cte_extractor.extract(model_expr)
 
-            yield {
-                "cte_expr": self.expr_fn(cte_expr),
-                "model_expr": self.expr_fn(model_expr),
-                **({"cte_name": cte_name} if cte_name else {}),
-            }
+            yield DbtModel(
+                name=cte_name,
+                cte_expr=self.expr_fn(cte_expr),
+                model_expr=self.expr_fn(model_expr),
+            )
