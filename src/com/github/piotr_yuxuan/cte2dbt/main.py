@@ -3,6 +3,7 @@ from typing import Callable, Dict, List, Tuple, Iterator
 
 from pydantic import BaseModel
 from sqlglot import exp
+from itertools import chain
 
 
 def table_has_qualified_name(
@@ -252,3 +253,60 @@ def process_expression(
         dbt_source_blocks=source_extractor.dbt_source_blocks,
         models=models,
     )
+
+
+class MetadataProvider:
+    def __init__(
+        self,
+        expr: exp.Expression,
+        model_name: str,
+        to_dbt_ref_block: Callable[[str], str],
+        to_dbt_source_block: Callable[[exp.Table], str],
+        # Quite impure, intended mostly for tests.
+        expr_fn: Callable = lambda expr: expr,
+    ):
+        self.expr = expr
+        self.model_name = model_name
+        self.to_dbt_ref_block = to_dbt_ref_block
+        self.to_dbt_source_block = to_dbt_source_block
+        self.expr_fn = expr_fn
+
+        self.source_extractor = SourceMetadataExtractor(
+            to_dbt_source_block=self.to_dbt_source_block
+        )
+        self.cte_extractor = CTEMetadataExtractor()
+
+    def iter_cte_tuples(self) -> Iterator[Tuple[str, exp.Expression]]:
+        """Yield CTE name and expr from the parent expression."""
+        if with_expr := self.expr.args.get("with", None):
+            yield from ((cte.alias, cte.this) for cte in with_expr)
+
+    def iter_sources(self) -> Iterator[str]:
+        """Yield source table names from the extracted sources."""
+        # Avoid a complex API with dependent iterators.
+        list(self.iter_model_tuples())
+        return iter(self.source_extractor.dbt_source_blocks.items())
+
+    def iter_model_tuples(self) -> Iterator[Tuple[str, exp.Expression]]:
+        """Process CTEs and yield (dbt_ref_block, model_expr)."""
+        final_select_expr = self.expr.copy()
+        final_select_expr.args.pop("with", None)
+
+        for cte_name, cte_expr in chain(
+            self.iter_cte_tuples(),
+            [(self.model_name, final_select_expr)],
+        ):
+            if cte_name:
+                dbt_ref_block = self.to_dbt_ref_block(cte_name)
+                self.source_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
+                self.cte_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
+
+            model_expr = cte_expr
+            model_expr = self.source_extractor.extract(model_expr)
+            model_expr = self.cte_extractor.extract(model_expr)
+
+            yield {
+                "cte_expr": self.expr_fn(cte_expr),
+                "model_expr": self.expr_fn(model_expr),
+                **({"cte_name": cte_name} if cte_name else {}),
+            }
