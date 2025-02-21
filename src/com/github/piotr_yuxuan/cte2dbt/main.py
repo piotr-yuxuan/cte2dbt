@@ -213,7 +213,7 @@ def process_expression(
     parent_model_name: str,
     to_dbt_ref_block: Callable[[str], str],
     to_dbt_source_block: Callable[[exp.Table], str],
-    # Quite unpure, intended mostly for tests.
+    # Quite impure, intended mostly for tests.
     expr_fn: Callable = lambda expr: expr,
 ) -> Metadata:
     final_select_expr: exp.Expression = parent_expr.copy()
