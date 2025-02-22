@@ -141,21 +141,16 @@ class MetadataDeprecated(BaseModel):
 class MetadataExtractor(ABC):
     """Abstract base class for transforming SQL tables."""
 
-    def __init__(
-        self,
-        dbt_ref_blocks: Dict[str, str] = None,
-    ):
-        self.dbt_ref_blocks: Dict[str, str] = (
-            dbt_ref_blocks.copy() if dbt_ref_blocks else dict()
-        )
+    def __init__(self):
+        self.dbt_ref_blocks: Dict[str, str] = dict()
 
     @abstractmethod
     def extract(self, sql_expression: exp.Expression) -> exp.Expression: ...
 
 
 class CTEMetadataExtractor(MetadataExtractor):
-    def __init__(self, dbt_ref_blocks: Dict[str, str] = None):
-        super().__init__(dbt_ref_blocks)
+    def __init__(self):
+        super().__init__()
 
     def extract(self, sql_expression: exp.Expression) -> exp.Expression:
         return transform_tables(
@@ -168,19 +163,11 @@ class CTEMetadataExtractor(MetadataExtractor):
 class SourceMetadataExtractor(MetadataExtractor):
     def __init__(
         self,
-        dbt_ref_blocks: Dict[str, str] = None,
-        dbt_source_blocks: Dict[str, str] = None,
-        to_dbt_source_block: Callable[[exp.Table], str] = None,
+        to_dbt_source_block: Callable[[exp.Table], str],
     ):
-        super().__init__(dbt_ref_blocks)
-        self.dbt_source_blocks: Dict[str, str] = (
-            dbt_source_blocks.copy() if dbt_source_blocks else dict()
-        )
-
-        def noop(s: str):
-            return s
-
-        self.to_dbt_source_block: Callable[[str], str] = to_dbt_source_block or noop
+        super().__init__()
+        self.dbt_source_blocks: Dict[str, str] = dict()
+        self.to_dbt_source_block: Callable[[str], str] = to_dbt_source_block
 
     def extract(self, sql_expression: exp.Expression) -> exp.Expression:
         return transform_tables(
@@ -278,9 +265,7 @@ class MetadataProvider:
         self.to_dbt_ref_block = to_dbt_ref_block
         self.to_dbt_source_block = to_dbt_source_block
 
-        self.source_extractor = SourceMetadataExtractor(
-            to_dbt_source_block=self.to_dbt_source_block
-        )
+        self.source_extractor = SourceMetadataExtractor(self.to_dbt_source_block)
         self.cte_extractor = CTEMetadataExtractor()
 
     def iter_cte_tuples(self) -> Iterator[Tuple[str, exp.Expression]]:
