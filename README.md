@@ -9,13 +9,15 @@ reusable dbt models.
 ## Example usage
 
 - Import `cte2dbt`:
+
 ``` python
 import com.github.piotr_yuxuan.cte2dbt as cte2dbt
 from sqlglot import parse_one
 ```
 
 - Store a SQL query as string variable `sql_query`:
-``` SQL
+
+``` python
 sql_query="""
 WITH
   cte1 AS (
@@ -35,12 +37,14 @@ FROM cte2;
 ```
 
 - You may define custom transformation functions:
+
 ``` python
 to_dbt_ref_block = lambda name: f"{{{{ ref('{name}') }}}}"
 to_dbt_source_block = lambda table: f"{{{{ source('{table.db}', '{table.name}') }}}}"
 ```
 
 - Lastly initialize the model provider:
+
 ``` python
 provider = cte2dbt.Provider(
     model_name="final_model",
@@ -50,11 +54,23 @@ provider = cte2dbt.Provider(
 )
 ```
 
-- You may now iterate over the dbt models:
+- You may now iterate over the dbt models in order with the guarantee
+  that the current model only relies on models that came earlier in
+  the iteration:
+
 ``` python
 for model_name, model_expr in provider.iter_dbt_models():
     print(f"---\nModel: {model_name}")
     print(model_expr.sql(pretty=True))
+```
+
+- Display the model dependency graph:
+
+``` python
+provider.model_dependencies()
+>>> {'cte1': {'customers'},
+     'cte2': {'cte1', 'prod.retails.orders'},
+     'final_model_name': {'cte2'}})
 ```
 
 ## Installation

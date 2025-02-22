@@ -211,7 +211,7 @@ class Provider:
         self._populate_stateful_accumulators()
         return iter(self.source_extractor.dbt_source_blocks.items())
 
-    def dependencies(self) -> Dict[str, Set[str]]:
+    def model_dependencies(self) -> Dict[str, Set[str]]:
         """Return a dependency dictionary where CTE whose name is key
         depends on sources and CTE whose names are in value.
 

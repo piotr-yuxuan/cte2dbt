@@ -349,7 +349,7 @@ def test_provider(
         to_dbt_ref_block,
         to_dbt_source_block,
     )
-    print(provider.dependencies())
+    provider.dependencies()
 
     assert expected_source_tuples == list(provider.iter_sources()), "iter_sources"
     assert expected_cte_tuples == list(
@@ -364,10 +364,10 @@ def test_provider(
             provider.iter_dbt_models(),
         )
     ), "iter_dbt__models"
-    assert expected_dependencies == provider.dependencies()
+    assert expected_dependencies == provider.model_dependencies()
 
 
-query_text = """
+sql_query = """
 WITH
   cte1 AS (
     SELECT id
