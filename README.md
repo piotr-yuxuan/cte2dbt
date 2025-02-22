@@ -52,7 +52,7 @@ SELECT * FROM orders_cte;
 """
 ```
 
-#### 3️⃣ Define dbt transformation functions (optional)
+#### 3️⃣ Define dbt transformation functions
 
 ``` python
 to_dbt_ref_block = lambda name: f"{{{{ ref('{name}') }}}}"
@@ -71,6 +71,9 @@ provider = cte2dbt.Provider(
 ```
 
 #### 5️⃣ Iterate over dbt models in execution order
+
+The order guarantees that current model only relies on models that
+came earlier in the iteration.
 
 ``` python
 for model_name, model_expr in provider.iter_dbt_models():
