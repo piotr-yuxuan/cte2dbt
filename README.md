@@ -1,6 +1,13 @@
 # `cte2dbt` 🚀
 
+![PyPI - Downloads](https://img.shields.io/pypi/dm/cte2dbt)
+![PyPI - Status](https://img.shields.io/pypi/status/cte2dbt)
+![PyPI - License](https://img.shields.io/pypi/l/cte2dbt)
+![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/piotr-yuxuan/cte2dbt)
+
 ## Overview
+
+![](./doc/social-media-preview.jpg)
 
 This small Python module is transforms large SQL queries with multiple
 Common Table Expressions (CTE) into modular, reusable dbt models.
