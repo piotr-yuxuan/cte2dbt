@@ -11,14 +11,12 @@ packages = [{ include = "com/github/piotr_yuxuan", from = "src" }]
 python = "^3.13"
 sqlglot = "^26.6.0"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
 black = "^24.0"
 mypy = "^1.8"
 isort = "^5.13"
 flake8 = "^7.0"
-
-[tool.poetry.group.dev.dependencies]
 pytest-watch = "^4.2.0"
 
 [tool.pytest.ini_options]
