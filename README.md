@@ -10,9 +10,10 @@ reusable dbt models.
 
 - Import `cte2dbt`:
 ``` python
-import com.github.piotr_yuxuan.cte2dbt.Provider as cte2dbt
+import com.github.piotr_yuxuan.cte2dbt as cte2dbt
 from sqlglot import parse_one
 ```
+
 - Store a SQL query as string variable `sql_query`:
 ``` SQL
 WITH
@@ -30,11 +31,13 @@ WITH
 SELECT *
 FROM cte2;
 ```
+
 - You may define custom transformation functions:
 ``` python
 to_dbt_ref_block = lambda name: f"{{{{ ref('{name}') }}}}"
 to_dbt_source_block = lambda table: f"{{{{ source('{table.db}', '{table.name}') }}}}"
 ```
+
 - Lastly Initialize the model provider:
 ``` python
 provider = cte2dbt.Provider(
@@ -44,6 +47,7 @@ provider = cte2dbt.Provider(
     to_dbt_source_block=to_dbt_source_block
 )
 ```
+
 - Now you can iterate over the dbt models:
 ``` python
 for model_name, model_expr in provider.iter_dbt_models():
