@@ -95,8 +95,8 @@ def to_fully_qualified_name(table: exp.Table) -> str:
     If a component is None, an empty string, or just whitespace, it is ignored.
     """
     # Normalise and trim each component
-    db = (table.db or "").strip()
     catalog = (table.catalog or "").strip()
+    db = (table.db or "").strip()
     name = (table.name or "").strip()
 
     # Arrange components in the desired order (catalog, then db, then name)
