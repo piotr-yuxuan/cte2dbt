@@ -77,8 +77,30 @@ came earlier in the iteration.
 
 ``` python
 for model_name, model_expr in provider.iter_dbt_models():
-    print(f"---\nModel: {model_name}")
+    print(f"-- Model: {model_name}")
     print(model_expr.sql(pretty=True))
+```
+
+Output:
+``` sql
+--- Model: cte1
+SELECT
+  id,
+  name
+FROM {{ source('my_source', 'customers') }} AS customers
+
+-- Model: cte2
+SELECT
+  cte1.id,
+  orders.amount
+FROM {{ ref('cte1') }} AS cte1
+JOIN {{ source('my_source', 'orders') }} AS orders
+  ON cte1.id = orders.customer_id
+
+-- Model: final_model_name
+SELECT
+  *
+FROM {{ ref('cte2') }} AS cte2
 ```
 
 #### 6️⃣ Generate the model dependency graph
