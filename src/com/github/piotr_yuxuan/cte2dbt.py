@@ -176,10 +176,10 @@ def merge_dicts_of_sets(
     right: Dict[Any, str],
 ) -> Dict[Any, str]:
     result = defaultdict(set)
-    for key in left.keys():
-        result[key] |= left.get(key)
-    for key in right.keys():
-        result[key] |= right.get(key)
+    for key, value in left.items():
+        result[key] |= value
+    for key, value in right.items():
+        result[key] |= value
     return result
 
 
