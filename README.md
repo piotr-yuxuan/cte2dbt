@@ -1,45 +1,94 @@
 # `cte2dbt`
 
-This small Python module is here to take a large SQL file containing
-an overwhelming query with a lot of common table expressions (CTE) and
-split them in smaller, digestible dbt models.
+## Overview
 
-The intent is to turn ad-hoc queries written on the spot by analysts
-into testable (tested), robust data live pipelines.
+This small Python module is designed to transform large SQL queries
+containing numerous Common Table Expressions (CTE) into modular,
+reusable dbt models.
 
-## Technical architecture
+## Example usage
 
-We are using a Python library that provides a SQL parser, se we can
-abstract away the text and reason on tokens. This parser exposes
-low-level tokens, for example whitespace characters or keywords. Some
-tokens may be grouped together for additional se,antic like an
-identifier that would be just a name `order`, or a name with an alias
-`order AS o`.
+- Import `cte2dbt`:
+``` python
+import com.github.piotr_yuxuan.cte2dbt as cte2dbt
+from sqlglot import parse_one
+```
+- Store a SQL query as string variable `sql_query`:
+``` SQL
+WITH
+  cte1 AS (
+    SELECT id
+         , name
+    FROM customers
+)
+, cte2 AS (
+    SELECT cte1.id
+         , orders.amount
+    FROM cte1
+    JOIN orders ON cte1.id = orders.customer_id
+)
+SELECT *
+FROM cte2;
+```
+- You may define custom transformation functions:
+``` python
+to_dbt_ref_block = lambda name: f"{{{{ ref('{name}') }}}}"
+to_dbt_source_block = lambda table: f"{{{{ source('{table.db}', '{table.name}') }}}}"
+```
+- Lastly Initialize the model provider:
+``` python
+provider = cte2dbt.Provider(
+    model_name="final_model",
+    expr=parse_one(sql_query),
+    to_dbt_ref_block=to_dbt_ref_block,
+    to_dbt_source_block=to_dbt_source_block
+)
+```
+- Now you can iterate over the dbt models:
+``` python
+for model_name, model_expr in provider.iter_dbt_models():
+    print(f"---\nModel: {model_name}")
+    print(model_expr.sql(pretty=True))
+```
 
-As stated above, the high-level goal of this library is to split a
-query using CTE into dbt models. Slightly more precisely, this library
-performs a reduction on CTE, builds a context of the names it has
-previously seen a replaces them where appriopriate.
+## Installation
 
-Going down one level of abstraction, it is about isolating for each
-CTE its name and query text, replace the former appropriately
-everywhere they occur and write the latter in a file.
+Install `cte2dbt` from the central Python package repository:
 
-Explained more precisely, we expect the parsed query to contain at
-least one `WITH` construct that introduces a list of identifiers that
-follow the syntax `name AS query`. This (long) construct is most
-likely followed by a `SELECT` query that uses the CTE names defined
-above. This library processes each CTE by calling function
-`render_hook` with its tranformed name, transformed query text and a
-couple of other arguments (called `context`) to enable extensibility.
-The transformed name is the output of function `rendered_name` called
-with the original name of the CTE alongside its que
-ry text and the
-same `context`.
+``` zsh
+poetry add cte2dbt
+```
 
-The crux of this work happens around transforming the query texts: for
-example, name `CTE1` might get replaced by dbt model `stg_cte_1` or
-even a reference in the form of `{{ ref('stg_cte_1') }}`. We should
-remember names once they are declared and replace them in all
-subsequent query texts, including the own text of the CTE if it is
-recursive.
+## Rationale
+
+Data analysts often write complex, monolithic SQL queries with
+multiple CTEs, making them difficult to maintain and test. This tool
+automates the extraction of CTEs, converting them into structured dbt
+models that integrate seamlessly into modern data transformation
+workflows.
+
+## Use Case
+
+This module is particularly useful for teams working with dbt who need
+to migrate existing SQL queries into a well-structured, modular format
+while preserving dependencies and relationships between different
+parts of the query.
+
+## Technical Notes
+
+This module:
+
+- Uses `sqlglot` for SQL parsing, enabling analysis and transformation
+  at the token level.
+- Identifies and classifies tables as either CTEs or source tables.
+- Replaces CTE references with Jinja blocks calling dbt `ref()` calls
+  and source tables with `source()` blocks. The transformations are
+  provided by the user who retains full flexibility.
+- Provides an iterable interface for processing extracted dbt models
+  in various ways, such as writing them to files, executing them, or
+  constructing dependency graphs.
+- Implements a bottom-up approach to processing SQL, first handling
+  individual CTEs before reconstructing the final query.
+
+This tool streamlines SQL-to-dbt migrations, ensuring cleaner,
+testable, and reusable SQL transformations. 🚀
