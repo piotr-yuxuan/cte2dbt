@@ -1,36 +1,43 @@
+import logging
 from abc import ABC, abstractmethod
 from itertools import chain
 from typing import Callable, Dict, Iterator, Tuple
 
 from sqlglot import exp
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def table_has_qualified_name(
-    table: exp.Table,
-) -> bool:
-    return bool(table.db or table.catalog)
+
+def table_has_qualified_name(table: exp.Table) -> bool:
+    result = bool(table.db or table.catalog)
+    logger.debug(f"Checking if table '{table}' has a qualified name: {result}")
+    return result
 
 
 def table_is_a_cte(
     cte_names: Dict[str, str],
     table: exp.Table,
 ) -> bool:
-    return not table_has_qualified_name(table) and table.name in cte_names
+    result = not table_has_qualified_name(table) and table.name in cte_names
+    logger.debug(f"Checking if table '{table}' is a CTE: {result}")
+    return result
 
 
 def table_is_a_source(
     cte_names: Dict[str, str],
     table: exp.Table,
 ) -> bool:
-    return (table_has_qualified_name(table)) or not (
-        table_has_qualified_name(table) or table.name in cte_names
-    )
+    result = table_has_qualified_name(table) or table.name not in cte_names
+    logger.debug(f"Checking if table '{table}' is a source: {result}")
+    return result
 
 
 def cte_table_fn(
     cte_table: exp.Table,
     cte_names: Dict[str, str],
 ) -> exp.Expression:
+    logger.info(f"Transforming CTE table '{cte_table.name}'")
     return exp.Table(
         this=exp.to_identifier(
             cte_names[cte_table.name],
@@ -50,6 +57,7 @@ def transform_tables(
     table_predicate: Callable[[exp.Table], bool],
     table_transform: Callable[[exp.Table], exp.Expression],
 ):
+    logger.debug(f"Transforming tables in expression: {expr}")
     return expr.copy().transform(
         lambda node: (
             table_transform(node)
@@ -63,6 +71,7 @@ def transform_cte_tables(
     cte_expr: exp.Expression,
     dbt_ref_blocks: Dict[str, str],
 ):
+    logger.info("Transforming CTE tables")
     return transform_tables(
         cte_expr,
         table_predicate=lambda node: table_is_a_cte(dbt_ref_blocks, node),
@@ -70,8 +79,10 @@ def transform_cte_tables(
     )
 
 
-def to_fully_qualified_name(table) -> str:
-    return ".".join(filter(None, [table.db, table.catalog, table.name]))
+def to_fully_qualified_name(table: exp.Table) -> str:
+    name = ".".join(filter(None, [table.db, table.catalog, table.name]))
+    logger.debug(f"Computed fully qualified name: {name}")
+    return name
 
 
 def source_table_fn(
@@ -84,9 +95,11 @@ def source_table_fn(
 
     """
     fully_qualified_name = to_fully_qualified_name(source_table)
+    logger.info(f"Processing source table: {fully_qualified_name}")
 
     if fully_qualified_name not in dbt_source_blocks:
         dbt_source_blocks[fully_qualified_name] = to_dbt_source_block(source_table)
+        logger.debug(f"Added new source block: {fully_qualified_name}")
 
     return exp.Table(
         this=exp.to_identifier(
@@ -108,6 +121,7 @@ def transform_source_tables(
     dbt_source_blocks: Dict[str, str],
     to_dbt_source_block: Callable,
 ):
+    logger.info("Transforming source tables")
     new_source_names = dbt_source_blocks.copy()
 
     return (
@@ -137,6 +151,7 @@ class CTEMetadataExtractor(MetadataExtractor):
         super().__init__()
 
     def extract(self, sql_expression: exp.Expression) -> exp.Expression:
+        logger.info("Extracting metadata from CTEs")
         return transform_tables(
             sql_expression,
             table_predicate=lambda node: table_is_a_cte(self.dbt_ref_blocks, node),
@@ -162,9 +177,11 @@ class SourceMetadataExtractor(MetadataExtractor):
 
     def table_transform(self, source_table: exp.Table) -> exp.Expression:
         source_name: str = to_fully_qualified_name(source_table)
+        logger.debug(f"Transforming source table: {source_name}")
 
         if source_name not in self.dbt_ref_blocks:
             self.dbt_source_blocks[source_name] = self.to_dbt_source_block(source_table)
+            logger.info(f"New source block added: {source_name}")
 
         return exp.Table(
             this=exp.to_identifier(
@@ -199,18 +216,21 @@ class Provider:
     def iter_cte_tuples(self) -> Iterator[Tuple[str, exp.Expression]]:
         """Yield CTE name and expr from the parent expression."""
         if with_expr := self.expr.args.get("with", None):
+            logger.debug("Extracting CTE tuples")
             yield from ((cte.alias, cte.this) for cte in with_expr)
 
     def iter_sources(self) -> Iterator[Tuple[str, str]]:
         """Yield source table names from the extracted sources."""
         # Realise the dependent iterator so as to avoid a complex API
         # with dependent iterators.
+        logger.info("Iterating over source tables")
         for _ in self.iter_dbt_models():
             pass
         return iter(self.source_extractor.dbt_source_blocks.items())
 
     def iter_dbt_models(self) -> Iterator[Tuple[str, exp.Expression]]:
         """Yield instances of DbtModel."""
+        logger.info("Iterating over DBT models")
         final_select_expr = self.expr.copy()
         final_select_expr.args.pop("with", None)
 
@@ -218,6 +238,8 @@ class Provider:
             self.iter_cte_tuples(),
             [(self.model_name, final_select_expr)],
         ):
+            logger.debug(f"Processing DBT model: {cte_name}")
+
             dbt_ref_block = self.to_dbt_ref_block(cte_name)
             self.source_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
             self.cte_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
