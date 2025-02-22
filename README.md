@@ -1,49 +1,65 @@
-# `cte2dbt`
+# `cte2dbt` 🚀
 
 ## Overview
 
-This small Python module is designed to transform large SQL queries
-containing numerous Common Table Expressions (CTE) into modular,
-reusable dbt models.
+This small Python module is transforms large SQL queries with multiple
+Common Table Expressions (CTE) into modular, reusable dbt models.
 
-## Example usage
+If you have ever struggled with maintaining long, monolithic SQL
+queries filled with CTE, this tool is for you! `cte2dbt` automates the
+extraction of CTE and converts them into structured dbt models,
+preserving their dependencies and making them easier to test,
+document, and reuse.
 
-- Import `cte2dbt`:
+## Why use `cte2dbt`?
 
-``` python
+- ✅ **Automates SQL-to-dbt migration** – No more manually splitting
+  queries into models.
+- ✅ **Preserves dependencies** – Ensures each dbt model is built in
+  the correct order.
+- ✅ **Enables testing & modularisation** – Improves maintainability
+  and performance.
+- ✅ **Customisable transformation functions** – Tailor how CTE and
+  source tables are processed.
+- ✅ **Iterable design** – Process, validate, or visualise models
+  however you like.
+
+## Example Usage
+
+### Transforming a SQL query into dbt models
+
+#### 1️⃣ Import `cte2dbt` and `sqlglot`
+
+```python
 import com.github.piotr_yuxuan.cte2dbt as cte2dbt
 from sqlglot import parse_one
 ```
 
-- Store a SQL query as string variable `sql_query`:
+#### 2️⃣ Define a SQL query
 
 ``` python
-sql_query="""
+sql_query = """
 WITH
-  cte1 AS (
-    SELECT id
-         , name
-    FROM customers
-)
-, cte2 AS (
-    SELECT cte1.id
-         , orders.amount
-    FROM cte1
-    JOIN prod.retails.orders ON cte1.id = orders.customer_id
-)
-SELECT *
-FROM cte2;
+  customers_cte AS (
+    SELECT id, name FROM customers
+  ),
+  orders_cte AS (
+    SELECT c.id, o.amount
+    FROM customers_cte AS c
+    JOIN prod.retails.orders AS o ON c.id = o.customer_id
+  )
+SELECT * FROM orders_cte;
 """
 ```
 
-- You may define custom transformation functions:
+#### 3️⃣ Define dbt transformation functions (optional)
 
 ``` python
 to_dbt_ref_block = lambda name: f"{{{{ ref('{name}') }}}}"
 to_dbt_source_block = lambda table: f"{{{{ source('{table.db}', '{table.name}') }}}}"
 ```
 
-- Lastly initialize the model provider:
+#### 4️⃣ Initialise the provider
 
 ``` python
 provider = cte2dbt.Provider(
@@ -54,9 +70,7 @@ provider = cte2dbt.Provider(
 )
 ```
 
-- You may now iterate over the dbt models in order with the guarantee
-  that the current model only relies on models that came earlier in
-  the iteration:
+#### 5️⃣ Iterate over dbt models in execution order
 
 ``` python
 for model_name, model_expr in provider.iter_dbt_models():
@@ -64,53 +78,125 @@ for model_name, model_expr in provider.iter_dbt_models():
     print(model_expr.sql(pretty=True))
 ```
 
-- Display the model dependency graph:
+#### 6️⃣ Generate the model dependency graph
 
 ``` python
-provider.model_dependencies()
->>> {'cte1': {'customers'},
-     'cte2': {'cte1', 'prod.retails.orders'},
-     'final_model_name': {'cte2'}})
+print(provider.model_dependencies())
+# Output:
+# {'customers_cte': {'customers'},
+#  'orders_cte': {'customers_cte', 'prod.retails.orders'},
+#  'final_model': {'orders_cte'}}
 ```
 
 ## Installation
 
-Install `cte2dbt` from the central Python package repository:
+Install cte2dbt using Poetry:
 
 ``` zsh
 poetry add cte2dbt
 ```
 
-## Rationale
+## Use Cases
 
-Data analysts often write complex, monolithic SQL queries with
-multiple CTEs, making them difficult to maintain and test. This tool
-automates the extraction of CTEs, converting them into structured dbt
-models that integrate seamlessly into modern data transformation
-workflows.
+Beyond just transforming SQL queries into dbt models, `cte2dbt`
+provides an iterable interface that unlocks multiple possibilities:
 
-## Use Case
+### 🔹 Run SQL transformations dynamically
 
-This module is particularly useful for teams working with dbt who need
-to migrate existing SQL queries into a well-structured, modular format
-while preserving dependencies and relationships between different
-parts of the query.
+Iterate over models and execute each as a temporary table:
 
-## Technical Notes
+``` python
+for model_name, model_expr in provider.iter_dbt_models():
+    conn.execute(f"CREATE TEMPORARY TABLE {model_name} AS {model_expr.sql()}")
+```
 
-This module:
+### 🔹 Inspect intermediate data structures
 
-- Uses `sqlglot` for SQL parsing, enabling analysis and transformation
-  at the token level.
-- Identifies and classifies tables as either CTEs or source tables.
-- Replaces CTE references with Jinja blocks calling dbt `ref()` calls
-  and source tables with `source()` blocks. The transformations are
-  provided by the user who retains full flexibility.
-- Provides an iterable interface for processing extracted dbt models
-  in various ways, such as writing them to files, executing them, or
-  constructing dependency graphs.
-- Implements a bottom-up approach to processing SQL, first handling
-  individual CTEs before reconstructing the final query.
+Use `DESCRIBE TABLE` or `DESCRIBE RESULT LAST_QUERY_ID()`to log or
+visualise schema changes:
 
-This tool streamlines SQL-to-dbt migrations, ensuring cleaner,
-testable, and reusable SQL transformations. 🚀
+``` python
+for model_name, _ in provider.iter_dbt_models():
+    print(conn.execute(f"DESCRIBE TABLE {model_name}").fetchall())
+```
+
+### 🔹 Validate data consistency
+
+Compare model output with existing tables to [measure
+similarity](https://docs.snowflake.com/en/sql-reference/functions/approximate_similarity):
+
+``` python
+for model_name, model_expr in provider.iter_dbt_models():
+    similarity_score = compare_with_reference(conn, model_expr.sql(), reference_table)
+    print(f"{model_name}: similarity {similarity_score}%")
+```
+
+### 🔹 Generate dependency graphs
+
+Understand how changes in one CTE ripple through your final model:
+
+``` python
+import networkx as nx
+import matplotlib.pyplot as plt
+
+graph = nx.DiGraph(provider.model_dependencies())
+nx.draw(graph, with_labels=True)
+plt.show()
+```
+
+### 🔹 Export models to files
+
+Save each model as a `.sql` file with a structured naming strategy:
+
+``` python
+for model_name, model_expr in provider.iter_dbt_models():
+    with open(f"models/{model_name}.sql", "w") as f:
+        f.write(model_expr.sql(pretty=True))
+```
+
+Extract column lists and generate corresponding .yml files:
+
+``` python
+for model_name, model_expr in provider.iter_dbt_models():
+    columns = extract_columns(model_expr)
+    write_yaml(f"models/{model_name}.yml", {"columns": columns})
+```
+
+## How It Works
+
+### 📌 SQL Parsing & CTE Extraction
+
+`cte2dbt` leverages [sqlglot](https://github.com/tobymao/sqlglot) to
+parse SQL queries at the token level. It then identifies CTE, source
+tables, and their dependencies.
+
+### 📌 Modular dbt Model Generation
+
+- CTE are transformed into separate dbt models;
+- Source tables are converted into source() blocks;
+- CTE references are replaced with ref() calls;
+- Execution order is preserved to guarantee correctness.
+
+### 📌 Fully Flexible API
+
+Rather than enforcing a rigid output format, cte2dbt gives you full
+control over how models are transformed, stored, or executed.
+
+## Technical Details
+
+- Uses [sqlglot](https://github.com/tobymao/sqlglot) for robust SQL
+  parsing;
+- Implements dependency resolution to determine the correct order of
+  model execution;
+- Supports fully customisable transformation functions;
+- Can be used programmatically or integrated into dbt workflows.
+
+## 🚀 Conclusion
+
+`cte2dbt` makes SQL-to-dbt migrations effortless, ensuring cleaner,
+modular, and testable SQL transformations. Whether you want to
+refactor legacy queries, improve maintainability, or generate
+structured dbt models automatically, this tool provides an elegant and
+flexible solution.
+
+Give it a try and simplify your dbt workflow today! 🎯
