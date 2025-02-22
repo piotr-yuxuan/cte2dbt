@@ -172,9 +172,9 @@ class SourceBlockTransformer(BaseBlockTransformer):
 
 
 def merge_dicts_of_sets(
-    left: Dict[Any, str],
-    right: Dict[Any, str],
-) -> Dict[Any, str]:
+    left: Dict[Any, Set],
+    right: Dict[Any, Set],
+) -> Dict[Any, Set]:
     result = defaultdict(set)
     for key, value in left.items():
         result[key] |= value
