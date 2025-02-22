@@ -7,7 +7,7 @@
 
 ## Overview
 
-![](./doc/social-media-preview.jpg)
+![](./doc/social-media-preview.png)
 
 This small Python module is transforms large SQL queries with multiple
 Common Table Expressions (CTE) into modular, reusable dbt models.
