@@ -74,8 +74,14 @@ def transform_cte_tables(
     logger.info("Transforming CTE tables")
     return transform_tables(
         cte_expr,
-        table_predicate=lambda node: table_is_a_cte(dbt_ref_blocks, node),
-        table_transform=lambda table: cte_table_fn(table, dbt_ref_blocks),
+        table_predicate=lambda node: table_is_a_cte(
+            dbt_ref_blocks,
+            node,
+        ),
+        table_transform=lambda table: cte_table_fn(
+            table,
+            dbt_ref_blocks,
+        ),
     )
 
 
@@ -127,9 +133,14 @@ def transform_source_tables(
     return (
         transform_tables(
             cte_expr,
-            table_predicate=lambda node: table_is_a_source(dbt_ref_blocks, node),
+            table_predicate=lambda node: table_is_a_source(
+                dbt_ref_blocks,
+                node,
+            ),
             table_transform=lambda table: source_table_fn(
-                table, new_source_names, to_dbt_source_block
+                table,
+                new_source_names,
+                to_dbt_source_block,
             ),
         ),
         new_source_names,
@@ -154,19 +165,22 @@ class CTEMetadataExtractor(MetadataExtractor):
         logger.info("Extracting metadata from CTEs")
         return transform_tables(
             sql_expression,
-            table_predicate=lambda node: table_is_a_cte(self.dbt_ref_blocks, node),
-            table_transform=lambda table: cte_table_fn(table, self.dbt_ref_blocks),
+            table_predicate=lambda node: table_is_a_cte(
+                self.dbt_ref_blocks,
+                node,
+            ),
+            table_transform=lambda table: cte_table_fn(
+                table,
+                self.dbt_ref_blocks,
+            ),
         )
 
 
 class SourceMetadataExtractor(MetadataExtractor):
-    def __init__(
-        self,
-        to_dbt_source_block: Callable[[exp.Table], str],
-    ):
+    def __init__(self, to_dbt_source_block: Callable[[exp.Table], str]):
         super().__init__()
         self.dbt_source_blocks: Dict[str, str] = dict()
-        self.to_dbt_source_block: Callable[[str], str] = to_dbt_source_block
+        self.to_dbt_source_block: Callable[[exp.Table], str] = to_dbt_source_block
 
     def extract(self, sql_expression: exp.Expression) -> exp.Expression:
         return transform_tables(
@@ -192,7 +206,7 @@ class SourceMetadataExtractor(MetadataExtractor):
                 quoted=False,
             ),
             alias=exp.to_identifier(
-                source_table.alias if source_table.alias else source_table.name,
+                source_table.alias if source_table.alias else source_table.name
             ),
         )
 
@@ -221,10 +235,10 @@ class Provider:
 
     def iter_sources(self) -> Iterator[Tuple[str, str]]:
         """Yield source table names from the extracted sources."""
-        # Realise the dependent iterator so as to avoid a complex API
-        # with dependent iterators.
         logger.info("Iterating over source tables")
         for _ in self.iter_dbt_models():
+            # Realise the dependent iterator so as to avoid a complex
+            # API with dependent iterators.
             pass
         return iter(self.source_extractor.dbt_source_blocks.items())
 
