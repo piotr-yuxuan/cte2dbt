@@ -350,17 +350,17 @@ def test_provider(
         to_dbt_source_block,
     )
 
-    assert expected_source_tuples == list(provider.iter_sources()), "iter_sources"
+    assert expected_source_tuples == list(provider.get_sources()), "iter_sources"
     assert expected_cte_tuples == list(
         map(
             lambda tuple: (tuple[0], tuple[1].sql(pretty=False)),
-            provider.iter_cte_tuples(),
+            provider.get_cte_tuples(),
         )
     ), "iter_cte_tuples"
     assert expected_model_tuples == list(
         map(
             lambda tuple: (tuple[0], tuple[1].sql(pretty=False)),
-            provider.iter_dbt_models(),
+            provider.get_dbt_models(),
         )
     ), "iter_dbt__models"
     assert expected_dependencies == provider.model_dependencies()

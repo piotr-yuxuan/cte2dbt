@@ -1,9 +1,9 @@
 import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from functools import partial
+from functools import cached_property, partial
 from itertools import chain
-from typing import Any, Callable, Dict, Iterator, Set, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Set, Tuple
 
 from sqlglot import exp
 
@@ -106,17 +106,23 @@ class CTEBlockTransformer(BaseBlockTransformer):
     def __init__(self):
         super().__init__()
 
-    def extract(self, cte_name: str, sql_expression: exp.Expression) -> exp.Expression:
+    def extract(
+        self,
+        cte_name: str,
+        sql_expression: exp.Expression,
+        dbt_ref_blocks: Dict[str, str],
+    ) -> exp.Expression:
         logger.info("Extracting metadata from CTEs")
         return transform_tables(
             sql_expression,
-            table_predicate=partial(table_is_a_cte, self.dbt_ref_blocks),
-            table_transform=partial(self.table_transform, cte_name),
+            table_predicate=partial(table_is_a_cte, dbt_ref_blocks),
+            table_transform=partial(self.table_transform, cte_name, dbt_ref_blocks),
         )
 
     def table_transform(
         self,
         cte_name: str,
+        dbt_ref_blocks: Dict[str, str],
         cte_table: exp.Table,
     ) -> exp.Expression:
         """Transform a CTE table name into its Jinja block."""
@@ -124,7 +130,7 @@ class CTEBlockTransformer(BaseBlockTransformer):
         self.dependencies[cte_name].add(cte_table.name)
         return exp.Table(
             this=exp.to_identifier(
-                self.dbt_ref_blocks[cte_table.name],
+                dbt_ref_blocks[cte_table.name],
                 # Not quoting the name can make the SQL
                 # invalid, but we want to insert raw jinja
                 # template ‑ invalid SQL in themselves.
@@ -142,18 +148,28 @@ class SourceBlockTransformer(BaseBlockTransformer):
         self.dbt_source_blocks: Dict[str, str] = dict()
         self.to_dbt_source_block: Callable[[exp.Table], str] = to_dbt_source_block
 
-    def extract(self, cte_name: str, sql_expression: exp.Expression) -> exp.Expression:
+    def extract(
+        self,
+        cte_name: str,
+        sql_expression: exp.Expression,
+        dbt_ref_blocks: Dict[str, str],
+    ) -> exp.Expression:
         return transform_tables(
             sql_expression,
-            table_predicate=partial(table_is_a_source, self.dbt_ref_blocks),
-            table_transform=partial(self.table_transform, cte_name),
+            table_predicate=partial(table_is_a_source, dbt_ref_blocks),
+            table_transform=partial(self.table_transform, cte_name, dbt_ref_blocks),
         )
 
-    def table_transform(self, cte_name: str, source_table: exp.Table) -> exp.Expression:
+    def table_transform(
+        self,
+        cte_name: str,
+        dbt_ref_blocks: Dict[str, str],
+        source_table: exp.Table,
+    ) -> exp.Expression:
         source_name: str = to_fully_qualified_name(source_table)
         logger.debug(f"Transforming source table: {source_name}")
 
-        if source_name not in self.dbt_ref_blocks:
+        if source_name not in dbt_ref_blocks:
             self.dbt_source_blocks[source_name] = self.to_dbt_source_block(source_table)
             self.dependencies[cte_name].add(source_name)
             logger.info(f"New source block added: {source_name}")
@@ -196,58 +212,66 @@ class Provider:
         self.to_dbt_ref_block = to_dbt_ref_block
         self.to_dbt_source_block = to_dbt_source_block
 
+        self.dbt_ref_blocks: Dict[str, str] = dict()
         self.source_extractor = SourceBlockTransformer(self.to_dbt_source_block)
         self.cte_extractor = CTEBlockTransformer()
 
-    def iter_cte_tuples(self) -> Iterator[Tuple[str, exp.Expression]]:
+    def get_cte_tuples(self) -> Iterator[Tuple[str, exp.Expression]]:
         """Yield CTE name and expr from the parent expression."""
-        if with_expr := self.expr.args.get("with", None):
-            logger.debug("Extracting CTE tuples")
-            yield from ((cte.alias, cte.this) for cte in with_expr)
+        with_expr = self.expr.args.get("with", [])
+        logger.debug("Extracting CTE tuples")
+        return [(cte.alias, cte.this) for cte in with_expr]
 
-    def iter_sources(self) -> Iterator[Tuple[str, str]]:
+    def get_sources(self) -> Dict[str, str]:
         """Yield source table names from the extracted sources."""
         logger.info("Iterating over source tables")
-        self._populate_stateful_accumulators()
-        return iter(self.source_extractor.dbt_source_blocks.items())
+        # Realise the cached property as to avoid a complex API with
+        # dependent iterators.
+        _ = self._dbt_models
+        return self.source_extractor.dbt_source_blocks.items()
+
+    def get_dbt_models(self) -> Tuple[str, exp.Expression]:
+        """Yield instances of DbtModel."""
+        return self._dbt_models
 
     def model_dependencies(self) -> Dict[str, Set[str]]:
         """Return a dependency dictionary where CTE whose name is key
         depends on sources and CTE whose names are in value.
 
         """
-        self._populate_stateful_accumulators()
+        # Realise the cached property as to avoid a complex API with
+        # dependent iterators.
+        _ = self._dbt_models
         return merge_dicts_of_sets(
             self.source_extractor.dependencies,
             self.cte_extractor.dependencies,
         )
 
-    def _populate_stateful_accumulators(self):
-        """Realise the main iterator as to avoid a complex API with
-        dependent iterators.
+    def to_model_expr(self, cte_name, cte_expr):
+        logger.debug(f"Processing DBT model: {cte_name}")
 
-        """
-        for _ in self.iter_dbt_models():
-            pass
+        self.dbt_ref_blocks[cte_name] = self.to_dbt_ref_block(cte_name)
 
-    def iter_dbt_models(self) -> Iterator[Tuple[str, exp.Expression]]:
-        """Yield instances of DbtModel."""
+        model_expr = cte_expr
+        model_expr = self.source_extractor.extract(
+            cte_name, model_expr, self.dbt_ref_blocks
+        )
+        model_expr = self.cte_extractor.extract(
+            cte_name, model_expr, self.dbt_ref_blocks
+        )
+
+        return model_expr
+
+    @cached_property
+    def _dbt_models(self) -> List[Tuple[str, exp.Expression]]:
         logger.info("Iterating over DBT models")
         final_select_expr = self.expr.copy()
         final_select_expr.args.pop("with", None)
 
-        for cte_name, cte_expr in chain(
-            self.iter_cte_tuples(),
-            [(self.model_name, final_select_expr)],
-        ):
-            logger.debug(f"Processing DBT model: {cte_name}")
-
-            dbt_ref_block = self.to_dbt_ref_block(cte_name)
-            self.source_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
-            self.cte_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
-
-            model_expr = cte_expr
-            model_expr = self.source_extractor.extract(cte_name, model_expr)
-            model_expr = self.cte_extractor.extract(cte_name, model_expr)
-
-            yield (cte_name, model_expr)
+        return [
+            (cte_name, self.to_model_expr(cte_name, cte_expr))
+            for cte_name, cte_expr in chain(
+                self.get_cte_tuples(),
+                [(self.model_name, final_select_expr)],
+            )
+        ]
