@@ -83,7 +83,7 @@ for model_name, model_expr in provider.iter_dbt_models():
 
 Output:
 ``` sql
---- Model: cte1
+-- Model: cte1
 SELECT
   id,
   name
