@@ -349,7 +349,6 @@ def test_provider(
         to_dbt_ref_block,
         to_dbt_source_block,
     )
-    provider.dependencies()
 
     assert expected_source_tuples == list(provider.iter_sources()), "iter_sources"
     assert expected_cte_tuples == list(
@@ -365,21 +364,3 @@ def test_provider(
         )
     ), "iter_dbt__models"
     assert expected_dependencies == provider.model_dependencies()
-
-
-sql_query = """
-WITH
-  cte1 AS (
-    SELECT id
-         , name
-    FROM customers
-)
-, cte2 AS (
-    SELECT cte1.id
-         , orders.amount
-    FROM cte1
-    JOIN prod.retails.orders ON cte1.id = orders.customer_id
-)
-SELECT *
-FROM cte2;
-"""
