@@ -16,6 +16,7 @@ from sqlglot import parse_one
 
 - Store a SQL query as string variable `sql_query`:
 ``` SQL
+sql_query="""
 WITH
   cte1 AS (
     SELECT id
@@ -26,10 +27,11 @@ WITH
     SELECT cte1.id
          , orders.amount
     FROM cte1
-    JOIN orders ON cte1.id = orders.customer_id
+    JOIN prod.retails.orders ON cte1.id = orders.customer_id
 )
 SELECT *
 FROM cte2;
+"""
 ```
 
 - You may define custom transformation functions:
