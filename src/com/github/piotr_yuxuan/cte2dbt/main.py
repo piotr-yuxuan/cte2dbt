@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from itertools import chain
-from typing import Callable, Dict, Iterator, Tuple, TypeVar
+from typing import Callable, Dict, Iterator, Tuple
 
 from pydantic import BaseModel
 from sqlglot import exp
@@ -255,16 +255,14 @@ def process_expression(
     )
 
 
-T = TypeVar("T")
-
-
 class DbtModel(
     BaseModel,
     frozen=True,
+    arbitrary_types_allowed=True,
 ):
     name: str
-    cte_expr: T
-    model_expr: T
+    cte_expr: exp.Expression
+    model_expr: exp.Expression
 
 
 class MetadataProvider:
@@ -274,14 +272,11 @@ class MetadataProvider:
         model_name: str,
         to_dbt_ref_block: Callable[[str], str],
         to_dbt_source_block: Callable[[exp.Table], str],
-        # Quite impure, intended mostly for tests.
-        expr_fn: Callable[[exp.Expression], T] = lambda expr: expr,
     ):
         self.expr = expr
         self.model_name = model_name
         self.to_dbt_ref_block = to_dbt_ref_block
         self.to_dbt_source_block = to_dbt_source_block
-        self.expr_fn = expr_fn
 
         self.source_extractor = SourceMetadataExtractor(
             to_dbt_source_block=self.to_dbt_source_block
@@ -293,7 +288,7 @@ class MetadataProvider:
         if with_expr := self.expr.args.get("with", None):
             yield from ((cte.alias, cte.this) for cte in with_expr)
 
-    def iter_sources(self) -> Iterator[str]:
+    def iter_sources(self) -> Iterator[Tuple[str, str]]:
         """Yield source table names from the extracted sources."""
         # Realise the dependent iterator so as to avoid a complex API
         # with dependent iterators.
@@ -301,7 +296,7 @@ class MetadataProvider:
             pass
         return iter(self.source_extractor.dbt_source_blocks.items())
 
-    def iter_dbt_models(self) -> Iterator[Tuple[str, exp.Expression]]:
+    def iter_dbt_models(self) -> Iterator[DbtModel]:
         """Yield instances of DbtModel."""
         final_select_expr = self.expr.copy()
         final_select_expr.args.pop("with", None)
@@ -320,6 +315,6 @@ class MetadataProvider:
 
             yield DbtModel(
                 name=cte_name,
-                cte_expr=self.expr_fn(cte_expr),
-                model_expr=self.expr_fn(model_expr),
+                cte_expr=cte_expr,
+                model_expr=model_expr,
             )
