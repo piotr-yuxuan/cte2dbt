@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from itertools import chain
 from typing import Callable, Dict, Iterator, Tuple
 
-from pydantic import BaseModel
 from sqlglot import exp
 
 
@@ -23,8 +22,6 @@ def table_is_a_source(
     cte_names: Dict[str, str],
     table: exp.Table,
 ) -> bool:
-    # ? Dubious?
-    # return has_table_qualified_name(table) and table.name not in replacements
     return (table_has_qualified_name(table)) or not (
         table_has_qualified_name(table) or table.name in cte_names
     )
@@ -125,19 +122,6 @@ def transform_source_tables(
     )
 
 
-def iter_cte_tuples(
-    select: exp.Select,
-) -> Iterator[Tuple[str, exp.Expression]]:
-    if with_expr := select.args.get("with", None):
-        yield from ((cte.alias, cte.this) for cte in with_expr)
-
-
-class MetadataDeprecated(BaseModel):
-    dbt_ref_blocks: Dict[str, str] = dict({})
-    dbt_source_blocks: Dict[str, str] = dict({})
-    models: Dict = dict()
-
-
 class MetadataExtractor(ABC):
     """Abstract base class for transforming SQL tables."""
 
@@ -196,53 +180,7 @@ class SourceMetadataExtractor(MetadataExtractor):
         )
 
 
-def process_expression(
-    parent_expr: exp.Expression,
-    parent_model_name: str,
-    to_dbt_ref_block: Callable[[str], str],
-    to_dbt_source_block: Callable[[exp.Table], str],
-    # Quite impure, intended mostly for tests.
-    expr_fn: Callable = lambda expr: expr,
-) -> MetadataDeprecated:
-    final_select_expr: exp.Expression = parent_expr.copy()
-    final_select_expr.args.pop("with", None)
-    cte_name_and_exprs = iter_cte_tuples(parent_expr)
-
-    models: Dict = dict()
-
-    source_extractor = SourceMetadataExtractor(to_dbt_source_block=to_dbt_source_block)
-    cte_extractor = CTEMetadataExtractor()
-
-    for cte_name, cte_expr in cte_name_and_exprs:
-        model_expr = cte_expr
-        dbt_ref_block = to_dbt_ref_block(cte_name)
-        source_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
-        model_expr = source_extractor.extract(cte_expr)
-        cte_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
-        model_expr = cte_extractor.extract(model_expr)
-
-        models[dbt_ref_block] = {
-            "cte_name": cte_name,
-            "cte_expr": expr_fn(cte_expr),
-            "model_expr": expr_fn(model_expr),
-        }
-
-    model_expr = final_select_expr
-    model_expr = source_extractor.extract(final_select_expr)
-    model_expr = cte_extractor.extract(model_expr)
-    models[parent_model_name] = {
-        "cte_expr": expr_fn(final_select_expr),
-        "model_expr": expr_fn(model_expr),
-    }
-
-    return MetadataDeprecated(
-        dbt_ref_blocks=cte_extractor.dbt_ref_blocks,
-        dbt_source_blocks=source_extractor.dbt_source_blocks,
-        models=models,
-    )
-
-
-class MetadataProvider:
+class Provider:
     def __init__(
         self,
         model_name: str,

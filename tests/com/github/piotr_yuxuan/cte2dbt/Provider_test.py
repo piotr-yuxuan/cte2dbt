@@ -1,16 +1,16 @@
 import importlib
 from typing import Tuple, List
 
-import com.github.piotr_yuxuan.cte2dbt.main as main
+import com.github.piotr_yuxuan.cte2dbt.Provider as Provider
 import pytest
 from sqlglot import exp, parse_one
 
-importlib.reload(main)
+importlib.reload(Provider)
 
 
 def test_has_table_qualified_name():
     assert (
-        main.table_has_qualified_name(
+        Provider.table_has_qualified_name(
             exp.Table(
                 db="db",
                 catalog="catalog",
@@ -20,7 +20,7 @@ def test_has_table_qualified_name():
         is True
     )
     assert (
-        main.table_has_qualified_name(
+        Provider.table_has_qualified_name(
             exp.Table(
                 catalog="catalog",
                 name="name",
@@ -29,7 +29,7 @@ def test_has_table_qualified_name():
         is True
     )
     assert (
-        main.table_has_qualified_name(
+        Provider.table_has_qualified_name(
             exp.Table(
                 this=exp.to_identifier("name"),
                 alias="alias",
@@ -37,7 +37,7 @@ def test_has_table_qualified_name():
         )
         is False
     )
-    assert main.table_has_qualified_name(exp.Table(name="name")) is False
+    assert Provider.table_has_qualified_name(exp.Table(name="name")) is False
 
 
 @pytest.mark.parametrize(
@@ -90,7 +90,7 @@ def test_has_table_qualified_name():
     ],
 )
 def test_is_table_a_cte(cte_names, table: exp.Table, expected):
-    assert expected == main.table_is_a_cte(cte_names, table)
+    assert expected == Provider.table_is_a_cte(cte_names, table)
 
 
 @pytest.mark.parametrize(
@@ -143,7 +143,7 @@ def test_is_table_a_cte(cte_names, table: exp.Table, expected):
     ],
 )
 def test_is_table_a_source(cte_names, table: exp.Table, expected):
-    assert expected == main.table_is_a_source(cte_names, table)
+    assert expected == Provider.table_is_a_source(cte_names, table)
 
 
 @pytest.mark.parametrize(
@@ -223,40 +223,8 @@ def test_is_table_a_source(cte_names, table: exp.Table, expected):
     ],
 )
 def test_table_name_with_alias_get_replaced(cte_names, query_text, expected):
-    actual = main.transform_cte_tables(parse_one(query_text), cte_names)
+    actual = Provider.transform_cte_tables(parse_one(query_text), cte_names)
     assert parse_one(expected).sql() == actual.sql()
-
-
-@pytest.mark.parametrize(
-    "query_text, expected_names",
-    [
-        (
-            "SELECT 1",
-            [],
-        ),
-        (
-            "WITH cte1 as (SELECT 1) SELECT 2",
-            ["cte1"],
-        ),
-        (
-            "WITH cte1 as (SELECT 1) WITH cte2 as (SELECT 1) SELECT 2",
-            ["cte1", "cte2"],
-        ),
-        (
-            "WITH cte1 as (WITH cte2 as (SELECT 1) SELECT 2) SELECT 3",
-            ["cte1"],
-        ),
-    ],
-)
-def test_get_name_and_text_for_all_cte(query_text, expected_names):
-    assert expected_names == [
-        name
-        for name, _ in main.iter_cte_tuples(
-            parse_one(
-                query_text,
-            )
-        )
-    ]
 
 
 @pytest.mark.parametrize(
@@ -287,7 +255,7 @@ def test_transform_source_tables_implicit_source_names(
     def to_dbt_source_block(table: exp.Table) -> str:
         return "{{ source('" + (table.catalog or table.name) + "') }}"
 
-    actual_cte_expr, actual_source_names = main.transform_source_tables(
+    actual_cte_expr, actual_source_names = Provider.transform_source_tables(
         cte_expr=parse_one(query_text),
         dbt_ref_blocks=dict(),
         dbt_source_blocks=dict(),
@@ -330,7 +298,7 @@ def test_transform_source_tables(
     def to_dbt_source_block(table: exp.Table) -> str:
         return "{{ source('" + (table.catalog or table.name) + "') }}"
 
-    actual_cte_expr, actual_source_names = main.transform_source_tables(
+    actual_cte_expr, actual_source_names = Provider.transform_source_tables(
         cte_expr=parse_one(query_text),
         dbt_ref_blocks=dict(),
         dbt_source_blocks=dbt_source_blocks,
@@ -451,7 +419,7 @@ def test_transform_source_tables(
         ),
     ],
 )
-def test_metadata_provider(
+def test_provider(
     query_text: str,
     expected_source_tuples: List[Tuple],
     expected_cte_tuples: List[Tuple],
@@ -471,7 +439,7 @@ def test_metadata_provider(
     def to_dbt_source_block(table: exp.Table) -> str:
         return f"{{{{ source('my_source', '{table.name}') }}}}"
 
-    provider = main.MetadataProvider(
+    provider = Provider.Provider(
         "final_model_name",
         parse_one(query_text),
         to_dbt_ref_block,
