@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cte2dbt"
-version = "1.0.0"
+version = "1.0.1"
 description = "Tools with batteries included to extract CTE from a large SQL query and split them iteratively into dbt models."
 authors = ["piotr-yuxuan <piotr-yuxuan@users.noreply.github.com>"]
 license = "EUPL-1.2"
