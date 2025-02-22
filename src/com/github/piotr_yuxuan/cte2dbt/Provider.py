@@ -90,10 +90,23 @@ def transform_cte_tables(
 
 
 def to_fully_qualified_name(table: exp.Table) -> str:
-    """Return the fully qualified name of a table."""
-    name = ".".join(filter(None, [table.db, table.catalog, table.name]))
-    logger.debug(f"Computed fully qualified name: {name}")
-    return name
+    """Return the fully qualified name of a table in the order catalog.db.name.
+
+    If a component is None, an empty string, or just whitespace, it is ignored.
+    """
+    # Normalise and trim each component
+    db = (table.db or "").strip()
+    catalog = (table.catalog or "").strip()
+    name = (table.name or "").strip()
+
+    # Arrange components in the desired order (catalog, then db, then name)
+    components = [catalog, db, name]
+
+    # Filter out any empty components
+    full_name = ".".join(comp for comp in components if comp)
+
+    logger.debug(f"Computed fully qualified name: {full_name}")
+    return full_name
 
 
 def source_table_fn(
