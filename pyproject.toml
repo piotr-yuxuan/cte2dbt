@@ -5,7 +5,7 @@ description = "Tools with batteries included to extract CTE from a large SQL que
 authors = ["piotr-yuxuan <piotr-yuxuan@users.noreply.github.com>"]
 license = "EUPL-1.2"
 readme = "README.md"
-packages = [{ include = "com/github/piotr_yuxuan/cte2dbt", from = "src" }]
+packages = [{ include = "com/github/piotr_yuxuan", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.13"
