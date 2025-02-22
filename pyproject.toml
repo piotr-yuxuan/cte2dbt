@@ -9,10 +9,7 @@ packages = [{ include = "com/github/piotr_yuxuan/cte2dbt", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.13"
-pydantic = "^2.10.6"
 sqlglot = "^26.6.0"
-hypothesis = "^6.125.3"
-pytest-watch = "^4.2.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^8.0"
@@ -20,6 +17,9 @@ black = "^24.0"
 mypy = "^1.8"
 isort = "^5.13"
 flake8 = "^7.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest-watch = "^4.2.0"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
