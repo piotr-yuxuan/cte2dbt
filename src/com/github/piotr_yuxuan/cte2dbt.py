@@ -1,8 +1,9 @@
 import logging
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from functools import partial
 from itertools import chain
-from typing import Callable, Dict, Iterator, Tuple
+from typing import Any, Callable, Dict, Iterator, Set, Tuple
 
 from sqlglot import exp
 
@@ -38,14 +39,14 @@ def table_is_a_source(
 
 
 def cte_table_fn(
-    cte_names: Dict[str, str],
+    dbt_ref_blocks: Dict[str, str],
     cte_table: exp.Table,
 ) -> exp.Expression:
     """Transform a CTE table name into its Jinja block."""
     logger.info(f"Transforming CTE table '{cte_table.name}'")
     return exp.Table(
         this=exp.to_identifier(
-            cte_names[cte_table.name],
+            dbt_ref_blocks[cte_table.name],
             # Not quoting the name can make the SQL
             # invalid, but we want to insert raw jinja
             # template ‑ invalid SQL in themselves.
@@ -60,7 +61,7 @@ def cte_table_fn(
 def transform_tables(
     expr: exp.Expression,
     table_predicate: Callable[[exp.Table], bool],
-    table_transform: Callable[[exp.Table], exp.Expression],
+    table_transform: Callable[[str, exp.Table], exp.Expression],
 ):
     logger.debug(f"Transforming tables in expression: {expr}")
     return expr.transform(
@@ -69,24 +70,6 @@ def transform_tables(
             if isinstance(node, exp.Table) and table_predicate(node)
             else node
         )
-    )
-
-
-def transform_cte_tables(
-    cte_expr: exp.Expression,
-    dbt_ref_blocks: Dict[str, str],
-):
-    logger.info("Transforming CTE tables")
-    return transform_tables(
-        cte_expr,
-        table_predicate=lambda node: table_is_a_cte(
-            dbt_ref_blocks,
-            node,
-        ),
-        table_transform=lambda table: cte_table_fn(
-            dbt_ref_blocks,
-            table,
-        ),
     )
 
 
@@ -110,35 +93,10 @@ def to_fully_qualified_name(table: exp.Table) -> str:
     return full_name
 
 
-def source_table_fn(
-    source_table: exp.Table,
-    dbt_source_blocks: Dict,
-    to_dbt_source_block: Callable,
-) -> exp.Expression:
-    """Transform a source table name into a Jinja block."""
-    fully_qualified_name = to_fully_qualified_name(source_table)
-    logger.info(f"Processing source table: {fully_qualified_name}")
-
-    if fully_qualified_name not in dbt_source_blocks:
-        dbt_source_blocks[fully_qualified_name] = to_dbt_source_block(source_table)
-        logger.debug(f"Added new source block: {fully_qualified_name}")
-
-    return exp.Table(
-        this=exp.to_identifier(
-            dbt_source_blocks[fully_qualified_name],
-            # Not quoting can make the SQL invalid, but we want to
-            # insert a jinja block ‑ itself invalid SQL.
-            quoted=False,
-        ),
-        alias=exp.to_identifier(
-            source_table.alias if source_table.alias else source_table.name,
-        ),
-    )
-
-
 class BaseBlockTransformer(ABC):
     def __init__(self):
         self.dbt_ref_blocks: Dict[str, str] = dict()
+        self.dependencies: Dict[str, Set[str]] = defaultdict(set)
 
     @abstractmethod
     def extract(self, sql_expression: exp.Expression) -> exp.Expression: ...
@@ -148,12 +106,33 @@ class CTEBlockTransformer(BaseBlockTransformer):
     def __init__(self):
         super().__init__()
 
-    def extract(self, sql_expression: exp.Expression) -> exp.Expression:
+    def extract(self, cte_name: str, sql_expression: exp.Expression) -> exp.Expression:
         logger.info("Extracting metadata from CTEs")
         return transform_tables(
             sql_expression,
             table_predicate=partial(table_is_a_cte, self.dbt_ref_blocks),
-            table_transform=partial(cte_table_fn, self.dbt_ref_blocks),
+            table_transform=partial(self.table_transform, cte_name),
+        )
+
+    def table_transform(
+        self,
+        cte_name: str,
+        cte_table: exp.Table,
+    ) -> exp.Expression:
+        """Transform a CTE table name into its Jinja block."""
+        logger.info(f"Transforming CTE table '{cte_table.name}'")
+        self.dependencies[cte_name].add(cte_table.name)
+        return exp.Table(
+            this=exp.to_identifier(
+                self.dbt_ref_blocks[cte_table.name],
+                # Not quoting the name can make the SQL
+                # invalid, but we want to insert raw jinja
+                # template ‑ invalid SQL in themselves.
+                quoted=False,
+            ),
+            alias=exp.to_identifier(
+                cte_table.alias if cte_table.alias else cte_table.name,
+            ),
         )
 
 
@@ -163,19 +142,20 @@ class SourceBlockTransformer(BaseBlockTransformer):
         self.dbt_source_blocks: Dict[str, str] = dict()
         self.to_dbt_source_block: Callable[[exp.Table], str] = to_dbt_source_block
 
-    def extract(self, sql_expression: exp.Expression) -> exp.Expression:
+    def extract(self, cte_name: str, sql_expression: exp.Expression) -> exp.Expression:
         return transform_tables(
             sql_expression,
             table_predicate=partial(table_is_a_source, self.dbt_ref_blocks),
-            table_transform=self.table_transform,
+            table_transform=partial(self.table_transform, cte_name),
         )
 
-    def table_transform(self, source_table: exp.Table) -> exp.Expression:
+    def table_transform(self, cte_name: str, source_table: exp.Table) -> exp.Expression:
         source_name: str = to_fully_qualified_name(source_table)
         logger.debug(f"Transforming source table: {source_name}")
 
         if source_name not in self.dbt_ref_blocks:
             self.dbt_source_blocks[source_name] = self.to_dbt_source_block(source_table)
+            self.dependencies[cte_name].add(source_name)
             logger.info(f"New source block added: {source_name}")
 
         return exp.Table(
@@ -189,6 +169,18 @@ class SourceBlockTransformer(BaseBlockTransformer):
                 source_table.alias if source_table.alias else source_table.name
             ),
         )
+
+
+def merge_dicts_of_sets(
+    left: Dict[Any, str],
+    right: Dict[Any, str],
+) -> Dict[Any, str]:
+    result = defaultdict(set)
+    for key in left.keys():
+        result[key] |= left.get(key)
+    for key in right.keys():
+        result[key] |= right.get(key)
+    return result
 
 
 class Provider:
@@ -216,11 +208,27 @@ class Provider:
     def iter_sources(self) -> Iterator[Tuple[str, str]]:
         """Yield source table names from the extracted sources."""
         logger.info("Iterating over source tables")
-        for _ in self.iter_dbt_models():
-            # Realise the dependent iterator so as to avoid a complex
-            # API with dependent iterators.
-            pass
+        self._populate_stateful_accumulators()
         return iter(self.source_extractor.dbt_source_blocks.items())
+
+    def dependencies(self) -> Dict[str, Set[str]]:
+        """Return a dependency dictionary where CTE whose name is key
+        depends on sources and CTE whose names are in value.
+
+        """
+        self._populate_stateful_accumulators()
+        return merge_dicts_of_sets(
+            self.source_extractor.dependencies,
+            self.cte_extractor.dependencies,
+        )
+
+    def _populate_stateful_accumulators(self):
+        """Realise the main iterator as to avoid a complex API with
+        dependent iterators.
+
+        """
+        for _ in self.iter_dbt_models():
+            pass
 
     def iter_dbt_models(self) -> Iterator[Tuple[str, exp.Expression]]:
         """Yield instances of DbtModel."""
@@ -239,7 +247,7 @@ class Provider:
             self.cte_extractor.dbt_ref_blocks[cte_name] = dbt_ref_block
 
             model_expr = cte_expr
-            model_expr = self.source_extractor.extract(model_expr)
-            model_expr = self.cte_extractor.extract(model_expr)
+            model_expr = self.source_extractor.extract(cte_name, model_expr)
+            model_expr = self.cte_extractor.extract(cte_name, model_expr)
 
             yield (cte_name, model_expr)
