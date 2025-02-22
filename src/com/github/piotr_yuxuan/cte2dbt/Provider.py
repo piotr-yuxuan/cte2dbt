@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def table_has_qualified_name(table: exp.Table) -> bool:
+    """Check if a table has a qualified name (database or catalog)."""
     result = bool(table.db or table.catalog)
     logger.debug(f"Checking if table '{table}' has a qualified name: {result}")
     return result
@@ -19,6 +20,7 @@ def table_is_a_cte(
     cte_names: Dict[str, str],
     table: exp.Table,
 ) -> bool:
+    """Determine if a table is a Common Table Expression (CTE)."""
     result = not table_has_qualified_name(table) and table.name in cte_names
     logger.debug(f"Checking if table '{table}' is a CTE: {result}")
     return result
@@ -28,6 +30,7 @@ def table_is_a_source(
     cte_names: Dict[str, str],
     table: exp.Table,
 ) -> bool:
+    """Check if a table is a source table (not a CTE)."""
     result = table_has_qualified_name(table) or table.name not in cte_names
     logger.debug(f"Checking if table '{table}' is a source: {result}")
     return result
@@ -37,6 +40,7 @@ def cte_table_fn(
     cte_table: exp.Table,
     cte_names: Dict[str, str],
 ) -> exp.Expression:
+    """Transform a CTE table name into its Jinja block."""
     logger.info(f"Transforming CTE table '{cte_table.name}'")
     return exp.Table(
         this=exp.to_identifier(
@@ -86,6 +90,7 @@ def transform_cte_tables(
 
 
 def to_fully_qualified_name(table: exp.Table) -> str:
+    """Return the fully qualified name of a table."""
     name = ".".join(filter(None, [table.db, table.catalog, table.name]))
     logger.debug(f"Computed fully qualified name: {name}")
     return name
@@ -96,10 +101,7 @@ def source_table_fn(
     dbt_source_blocks: Dict,
     to_dbt_source_block: Callable,
 ) -> exp.Expression:
-    """Beware: because of the walk pattern used, this function uses
-    mutable arguments.
-
-    """
+    """Transform a source table name into a Jinja block."""
     fully_qualified_name = to_fully_qualified_name(source_table)
     logger.info(f"Processing source table: {fully_qualified_name}")
 
@@ -148,7 +150,8 @@ def transform_source_tables(
 
 
 class MetadataExtractor(ABC):
-    """Abstract base class for transforming SQL tables."""
+    """Abstract base class for extracting and transforming metadata
+    from SQL expressions."""
 
     def __init__(self):
         self.dbt_ref_blocks: Dict[str, str] = dict()
@@ -158,6 +161,9 @@ class MetadataExtractor(ABC):
 
 
 class CTEMetadataExtractor(MetadataExtractor):
+    """Extracts metadata related to Common Table Expressions (CTEs) in
+    a SQL expression."""
+
     def __init__(self):
         super().__init__()
 
@@ -177,6 +183,8 @@ class CTEMetadataExtractor(MetadataExtractor):
 
 
 class SourceMetadataExtractor(MetadataExtractor):
+    """Extracts metadata related to source tables in a SQL expression."""
+
     def __init__(self, to_dbt_source_block: Callable[[exp.Table], str]):
         super().__init__()
         self.dbt_source_blocks: Dict[str, str] = dict()
