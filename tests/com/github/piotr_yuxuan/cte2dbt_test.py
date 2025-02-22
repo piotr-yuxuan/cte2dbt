@@ -1,7 +1,7 @@
 import importlib
 from typing import List, Tuple
 
-import com.github.piotr_yuxuan.cte2dbt.Provider as cte2dbt
+import com.github.piotr_yuxuan.cte2dbt as cte2dbt
 import pytest
 from sqlglot import exp, parse_one
 
