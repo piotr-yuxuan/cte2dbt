@@ -125,9 +125,8 @@ def source_table_fn(
     return exp.Table(
         this=exp.to_identifier(
             dbt_source_blocks[fully_qualified_name],
-            # Not quoting the name can make the SQL
-            # invalid, but we want to insert raw jinja
-            # template ‑ invalid SQL in themselves.
+            # Not quoting can make the SQL invalid, but we want to
+            # insert a jinja block ‑ itself invalid SQL.
             quoted=False,
         ),
         alias=exp.to_identifier(
@@ -187,9 +186,8 @@ class SourceBlockTransformer(BaseBlockTransformer):
         return exp.Table(
             this=exp.to_identifier(
                 self.dbt_source_blocks[source_name],
-                # Not quoting the name can make the SQL
-                # invalid, but we want to insert raw jinja
-                # template ‑ invalid SQL in themselves.
+                # Not quoting can make the SQL invalid, but we want to
+                # insert a jinja block ‑ itself invalid SQL.
                 quoted=False,
             ),
             alias=exp.to_identifier(
