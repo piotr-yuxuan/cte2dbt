@@ -193,7 +193,7 @@ def test_is_table_a_source(cte_names, table: exp.Table, expected):
     [
         (
             "SELECT 1",
-            [],
+            {},
             [],
             [
                 ("final_model_name", "SELECT 1"),
@@ -202,7 +202,7 @@ def test_is_table_a_source(cte_names, table: exp.Table, expected):
         ),
         (
             "SELECT * from source1",
-            [("source1", "{{ source('my_source', 'source1') }}")],
+            {"source1": "{{ source('my_source', 'source1') }}"},
             [],
             [
                 (
@@ -218,7 +218,7 @@ def test_is_table_a_source(cte_names, table: exp.Table, expected):
         ),
         (
             "WITH cte1 as (SELECT 1) SELECT 2",
-            [],
+            {},
             [("cte1", "SELECT 1")],
             [("cte1", "SELECT 1"), ("final_model_name", "SELECT 2")],
             # cte1 is not used, so is not a dependency.
@@ -226,7 +226,7 @@ def test_is_table_a_source(cte_names, table: exp.Table, expected):
         ),
         (
             "WITH cte1 as (SELECT 1), cte2 as (SELECT 2) SELECT 3",
-            [],
+            {},
             [("cte1", "SELECT 1"), ("cte2", "SELECT 2")],
             [
                 ("cte1", "SELECT 1"),
@@ -237,7 +237,7 @@ def test_is_table_a_source(cte_names, table: exp.Table, expected):
         ),
         (
             "WITH cte1 as (SELECT 1) WITH cte2 as (SELECT 2) SELECT 3",
-            [],
+            {},
             [("cte1", "SELECT 1"), ("cte2", "SELECT 2")],
             [
                 (
@@ -257,16 +257,10 @@ def test_is_table_a_source(cte_names, table: exp.Table, expected):
         ),
         (
             "WITH cte1 as (SELECT 1 FROM source1) SELECT * FROM cte1 NATURAL JOIN source2",
-            [
-                (
-                    "source1",
-                    "{{ source('my_source', 'source1') }}",
-                ),
-                (
-                    "source2",
-                    "{{ source('my_source', 'source2') }}",
-                ),
-            ],
+            {
+                "source1": "{{ source('my_source', 'source1') }}",
+                "source2": "{{ source('my_source', 'source2') }}",
+            },
             [
                 (
                     "cte1",
@@ -297,7 +291,7 @@ def test_is_table_a_source(cte_names, table: exp.Table, expected):
             # Ideally we would walk through deeper CTE and use a file
             # path strategy to keep code organised.
             "WITH cte1 as (WITH cte2 as (SELECT 1) SELECT 2) SELECT * FROM cte1",
-            [],
+            {},
             [
                 (
                     "cte1",
@@ -350,7 +344,7 @@ def test_provider(
         to_dbt_source_block,
     )
 
-    assert expected_source_tuples == list(provider.get_sources()), "iter_sources"
+    assert expected_source_tuples == provider.get_sources(), "iter_sources"
     assert expected_cte_tuples == list(
         map(
             lambda tuple: (tuple[0], tuple[1].sql(pretty=False)),

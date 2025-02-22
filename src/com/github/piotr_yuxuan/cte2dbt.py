@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from functools import cached_property, partial
 from itertools import chain
-from typing import Any, Callable, Dict, Iterator, List, Set, Tuple
+from typing import Any, Callable, Dict, List, Set, Tuple
 
 from sqlglot import exp
 
@@ -61,7 +61,7 @@ def cte_table_fn(
 def transform_tables(
     expr: exp.Expression,
     table_predicate: Callable[[exp.Table], bool],
-    table_transform: Callable[[str, exp.Table], exp.Expression],
+    table_transform: Callable[[exp.Table], exp.Expression],
 ):
     logger.debug(f"Transforming tables in expression: {expr}")
     return expr.transform(
@@ -99,7 +99,12 @@ class BaseBlockTransformer(ABC):
         self.dependencies: Dict[str, Set[str]] = defaultdict(set)
 
     @abstractmethod
-    def extract(self, sql_expression: exp.Expression) -> exp.Expression: ...
+    def extract(
+        self,
+        cte_name: str,
+        sql_expression: exp.Expression,
+        dbt_ref_blocks: Dict[str, str],
+    ) -> exp.Expression: ...
 
 
 class CTEBlockTransformer(BaseBlockTransformer):
@@ -216,7 +221,7 @@ class Provider:
         self.source_extractor = SourceBlockTransformer(self.to_dbt_source_block)
         self.cte_extractor = CTEBlockTransformer()
 
-    def get_cte_tuples(self) -> Iterator[Tuple[str, exp.Expression]]:
+    def get_cte_tuples(self) -> List[Tuple[str, exp.Expression]]:
         """Yield CTE name and expr from the parent expression."""
         with_expr = self.expr.args.get("with", [])
         logger.debug("Extracting CTE tuples")
@@ -228,9 +233,9 @@ class Provider:
         # Realise the cached property as to avoid a complex API with
         # dependent iterators.
         _ = self._dbt_models
-        return self.source_extractor.dbt_source_blocks.items()
+        return self.source_extractor.dbt_source_blocks
 
-    def get_dbt_models(self) -> Tuple[str, exp.Expression]:
+    def get_dbt_models(self) -> List[Tuple[str, exp.Expression]]:
         """Yield instances of DbtModel."""
         return self._dbt_models
 
@@ -254,10 +259,14 @@ class Provider:
 
         model_expr = cte_expr
         model_expr = self.source_extractor.extract(
-            cte_name, model_expr, self.dbt_ref_blocks
+            cte_name,
+            model_expr,
+            self.dbt_ref_blocks,
         )
         model_expr = self.cte_extractor.extract(
-            cte_name, model_expr, self.dbt_ref_blocks
+            cte_name,
+            model_expr,
+            self.dbt_ref_blocks,
         )
 
         return model_expr
