@@ -1,9 +1,9 @@
 # `cte2dbt` 🚀
 
-![PyPI - Downloads](https://img.shields.io/pypi/dm/cte2dbt)
-![PyPI - Status](https://img.shields.io/pypi/status/cte2dbt)
-![PyPI - License](https://img.shields.io/pypi/l/cte2dbt)
-![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/piotr-yuxuan/cte2dbt)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/cte2dbt)](https://pypi.org/project/cte2dbt/)
+[![PyPI - Status](https://img.shields.io/pypi/status/cte2dbt)](https://pypi.org/project/cte2dbt/)
+[![GitHub License](https://img.shields.io/github/license/piotr-yuxuan/cte2dbt)](https://github.com/piotr-yuxuan/cte2dbt?tab=EUPL-1.2-1-ov-file#readme)
+[![GitHub Issues](https://img.shields.io/github/issues/piotr-yuxuan/cte2dbt)](https://github.com/piotr-yuxuan/cte2dbt/issues)
 
 ## Overview
 
