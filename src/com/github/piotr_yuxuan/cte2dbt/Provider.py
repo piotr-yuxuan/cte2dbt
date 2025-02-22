@@ -149,10 +149,7 @@ def transform_source_tables(
     )
 
 
-class MetadataExtractor(ABC):
-    """Abstract base class for extracting and transforming metadata
-    from SQL expressions."""
-
+class BaseBlockTransformer(ABC):
     def __init__(self):
         self.dbt_ref_blocks: Dict[str, str] = dict()
 
@@ -160,10 +157,7 @@ class MetadataExtractor(ABC):
     def extract(self, sql_expression: exp.Expression) -> exp.Expression: ...
 
 
-class CTEMetadataExtractor(MetadataExtractor):
-    """Extracts metadata related to Common Table Expressions (CTEs) in
-    a SQL expression."""
-
+class CTEBlockTransformer(BaseBlockTransformer):
     def __init__(self):
         super().__init__()
 
@@ -182,9 +176,7 @@ class CTEMetadataExtractor(MetadataExtractor):
         )
 
 
-class SourceMetadataExtractor(MetadataExtractor):
-    """Extracts metadata related to source tables in a SQL expression."""
-
+class SourceBlockTransformer(BaseBlockTransformer):
     def __init__(self, to_dbt_source_block: Callable[[exp.Table], str]):
         super().__init__()
         self.dbt_source_blocks: Dict[str, str] = dict()
@@ -232,8 +224,8 @@ class Provider:
         self.to_dbt_ref_block = to_dbt_ref_block
         self.to_dbt_source_block = to_dbt_source_block
 
-        self.source_extractor = SourceMetadataExtractor(self.to_dbt_source_block)
-        self.cte_extractor = CTEMetadataExtractor()
+        self.source_extractor = SourceBlockTransformer(self.to_dbt_source_block)
+        self.cte_extractor = CTEBlockTransformer()
 
     def iter_cte_tuples(self) -> Iterator[Tuple[str, exp.Expression]]:
         """Yield CTE name and expr from the parent expression."""
