@@ -1,5 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
+from functools import partial
 from itertools import chain
 from typing import Callable, Dict, Iterator, Tuple
 
@@ -37,8 +38,8 @@ def table_is_a_source(
 
 
 def cte_table_fn(
-    cte_table: exp.Table,
     cte_names: Dict[str, str],
+    cte_table: exp.Table,
 ) -> exp.Expression:
     """Transform a CTE table name into its Jinja block."""
     logger.info(f"Transforming CTE table '{cte_table.name}'")
@@ -83,8 +84,8 @@ def transform_cte_tables(
             node,
         ),
         table_transform=lambda table: cte_table_fn(
-            table,
             dbt_ref_blocks,
+            table,
         ),
     )
 
@@ -151,14 +152,8 @@ class CTEBlockTransformer(BaseBlockTransformer):
         logger.info("Extracting metadata from CTEs")
         return transform_tables(
             sql_expression,
-            table_predicate=lambda node: table_is_a_cte(
-                self.dbt_ref_blocks,
-                node,
-            ),
-            table_transform=lambda table: cte_table_fn(
-                table,
-                self.dbt_ref_blocks,
-            ),
+            table_predicate=partial(table_is_a_cte, self.dbt_ref_blocks),
+            table_transform=partial(cte_table_fn, self.dbt_ref_blocks),
         )
 
 
@@ -171,8 +166,8 @@ class SourceBlockTransformer(BaseBlockTransformer):
     def extract(self, sql_expression: exp.Expression) -> exp.Expression:
         return transform_tables(
             sql_expression,
-            table_predicate=lambda node: table_is_a_source(self.dbt_ref_blocks, node),
-            table_transform=lambda table: self.table_transform(table),
+            table_predicate=partial(table_is_a_source, self.dbt_ref_blocks),
+            table_transform=self.table_transform,
         )
 
     def table_transform(self, source_table: exp.Table) -> exp.Expression:
