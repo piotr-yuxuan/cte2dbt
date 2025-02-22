@@ -9,7 +9,7 @@
 
 ![](./doc/social-media-preview.png)
 
-This small Python module is transforms large SQL queries with multiple
+This small Python module transforms large SQL queries with multiple
 Common Table Expressions (CTE) into modular, reusable dbt models.
 
 If you have ever struggled with maintaining long, monolithic SQL
