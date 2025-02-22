@@ -62,7 +62,7 @@ def transform_tables(
     table_transform: Callable[[exp.Table], exp.Expression],
 ):
     logger.debug(f"Transforming tables in expression: {expr}")
-    return expr.copy().transform(
+    return expr.transform(
         lambda node: (
             table_transform(node)
             if isinstance(node, exp.Table) and table_predicate(node)
@@ -219,7 +219,7 @@ class Provider:
         to_dbt_ref_block: Callable[[str], str],
         to_dbt_source_block: Callable[[exp.Table], str],
     ):
-        self.expr = expr
+        self.expr = expr.copy()
         self.model_name = model_name
         self.to_dbt_ref_block = to_dbt_ref_block
         self.to_dbt_source_block = to_dbt_source_block
