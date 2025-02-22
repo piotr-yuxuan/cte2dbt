@@ -38,7 +38,7 @@ to_dbt_ref_block = lambda name: f"{{{{ ref('{name}') }}}}"
 to_dbt_source_block = lambda table: f"{{{{ source('{table.db}', '{table.name}') }}}}"
 ```
 
-- Lastly Initialize the model provider:
+- Lastly initialize the model provider:
 ``` python
 provider = cte2dbt.Provider(
     model_name="final_model",
@@ -48,7 +48,7 @@ provider = cte2dbt.Provider(
 )
 ```
 
-- Now you can iterate over the dbt models:
+- You may now iterate over the dbt models:
 ``` python
 for model_name, model_expr in provider.iter_dbt_models():
     print(f"---\nModel: {model_name}")
