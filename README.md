@@ -10,7 +10,7 @@ reusable dbt models.
 
 - Import `cte2dbt`:
 ``` python
-import com.github.piotr_yuxuan.cte2dbt as cte2dbt
+import com.github.piotr_yuxuan.cte2dbt.Provider as cte2dbt
 from sqlglot import parse_one
 ```
 - Store a SQL query as string variable `sql_query`:
