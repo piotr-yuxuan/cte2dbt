@@ -1,4 +1,5 @@
 import importlib
+from typing import Tuple, List
 
 import com.github.piotr_yuxuan.cte2dbt.main as main
 import pytest
@@ -341,111 +342,120 @@ def test_transform_source_tables(
 
 
 @pytest.mark.parametrize(
-    "query_text, expected_metadata",
+    "query_text, expected_source_tuples, expected_cte_tuples, expected_model_tuples",
     [
         (
             "SELECT 1",
-            main.MetadataDeprecated(
-                dbt_ref_blocks={},
-                dbt_source_blocks={},
-                models={
-                    "final_model_name": {
-                        "cte_expr": "SELECT 1",
-                        "model_expr": "SELECT 1",
-                    }
-                },
-            ),
+            [],
+            [],
+            [
+                ("final_model_name", "SELECT 1"),
+            ],
         ),
         (
-            "WITH cte1 as (SELECT 1 FROM source1) SELECT * FROM cte1 NATURAL JOIN source2",
-            main.MetadataDeprecated(
-                dbt_ref_blocks={"cte1": "{{ ref('cte1') }}"},
-                dbt_source_blocks={
-                    "source1": "{{ source('source1') }}",
-                    "source2": "{{ source('source2') }}",
-                },
-                models={
-                    "{{ ref('cte1') }}": {
-                        "cte_name": "cte1",
-                        "cte_expr": "SELECT 1 FROM source1",
-                        "model_expr": "SELECT 1 FROM {{ source('source1') }} AS source1",
-                    },
-                    "final_model_name": {
-                        "cte_expr": "SELECT * FROM cte1 NATURAL JOIN source2",
-                        "model_expr": "SELECT * FROM {{ ref('cte1') }} AS cte1 NATURAL JOIN {{ source('source2') }} AS source2",
-                    },
-                },
-            ),
+            "SELECT * from source1",
+            [("source1", "{{ source('my_source', 'source1') }}")],
+            [],
+            [
+                (
+                    "final_model_name",
+                    "SELECT * FROM {{ source('my_source', 'source1') }} AS source1",
+                ),
+            ],
         ),
         (
             "WITH cte1 as (SELECT 1) SELECT 2",
-            main.MetadataDeprecated(
-                dbt_ref_blocks={"cte1": "{{ ref('cte1') }}"},
-                dbt_source_blocks={},
-                models={
-                    "{{ ref('cte1') }}": {
-                        "cte_name": "cte1",
-                        "cte_expr": "SELECT 1",
-                        "model_expr": "SELECT 1",
-                    },
-                    "final_model_name": {
-                        "cte_expr": "SELECT 2",
-                        "model_expr": "SELECT 2",
-                    },
-                },
-            ),
+            [],
+            [("cte1", "SELECT 1")],
+            [("cte1", "SELECT 1"), ("final_model_name", "SELECT 2")],
         ),
         (
-            "WITH cte1 as (SELECT 1) WITH cte2 as (SELECT 1) SELECT 2",
-            main.MetadataDeprecated(
-                dbt_ref_blocks={
-                    "cte1": "{{ ref('cte1') }}",
-                    "cte2": "{{ ref('cte2') }}",
-                },
-                dbt_source_blocks={},
-                models={
-                    "{{ ref('cte1') }}": {
-                        "cte_name": "cte1",
-                        "cte_expr": "SELECT 1",
-                        "model_expr": "SELECT 1",
-                    },
-                    "{{ ref('cte2') }}": {
-                        "cte_name": "cte2",
-                        "cte_expr": "SELECT 1",
-                        "model_expr": "SELECT 1",
-                    },
-                    "final_model_name": {
-                        "cte_expr": "SELECT 2",
-                        "model_expr": "SELECT 2",
-                    },
-                },
-            ),
+            "WITH cte1 as (SELECT 1), cte2 as (SELECT 2) SELECT 3",
+            [],
+            [("cte1", "SELECT 1"), ("cte2", "SELECT 2")],
+            [
+                ("cte1", "SELECT 1"),
+                ("cte2", "SELECT 2"),
+                ("final_model_name", "SELECT 3"),
+            ],
+        ),
+        (
+            "WITH cte1 as (SELECT 1) WITH cte2 as (SELECT 2) SELECT 3",
+            [],
+            [("cte1", "SELECT 1"), ("cte2", "SELECT 2")],
+            [
+                (
+                    "cte1",
+                    "SELECT 1",
+                ),
+                (
+                    "cte2",
+                    "SELECT 2",
+                ),
+                (
+                    "final_model_name",
+                    "SELECT 3",
+                ),
+            ],
+        ),
+        (
+            "WITH cte1 as (SELECT 1 FROM source1) SELECT * FROM cte1 NATURAL JOIN source2",
+            [
+                (
+                    "source1",
+                    "{{ source('my_source', 'source1') }}",
+                ),
+                (
+                    "source2",
+                    "{{ source('my_source', 'source2') }}",
+                ),
+            ],
+            [
+                (
+                    "cte1",
+                    "SELECT 1 FROM source1",
+                ),
+            ],
+            [
+                (
+                    "cte1",
+                    "SELECT 1 FROM {{ source('my_source', 'source1') }} AS source1",
+                ),
+                (
+                    "final_model_name",
+                    "SELECT * FROM {{ ref('cte1') }} AS cte1 NATURAL JOIN {{ source('my_source', 'source2') }} AS source2",
+                ),
+            ],
         ),
         (
             # Ideally we would walk through deeper CTE and use a file
             # path strategy to keep code organised.
             "WITH cte1 as (WITH cte2 as (SELECT 1) SELECT 2) SELECT 3",
-            main.MetadataDeprecated(
-                dbt_ref_blocks={"cte1": "{{ ref('cte1') }}"},
-                dbt_source_blocks={},
-                models={
-                    "{{ ref('cte1') }}": {
-                        "cte_name": "cte1",
-                        "cte_expr": "WITH cte2 AS (SELECT 1) SELECT 2",
-                        "model_expr": "WITH cte2 AS (SELECT 1) SELECT 2",
-                    },
-                    "final_model_name": {
-                        "cte_expr": "SELECT 3",
-                        "model_expr": "SELECT 3",
-                    },
-                },
-            ),
+            [],
+            [
+                (
+                    "cte1",
+                    "WITH cte2 AS (SELECT 1) SELECT 2",
+                ),
+            ],
+            [
+                (
+                    "cte1",
+                    "WITH cte2 AS (SELECT 1) SELECT 2",
+                ),
+                (
+                    "final_model_name",
+                    "SELECT 3",
+                ),
+            ],
         ),
     ],
 )
-def test_refactoring_process_expression(
+def test_metadata_provider(
     query_text: str,
-    expected_metadata: main.MetadataDeprecated,
+    expected_source_tuples: List[Tuple],
+    expected_cte_tuples: List[Tuple],
+    expected_model_tuples: List[Tuple],
 ):
     """The goal of this non-unit test is to hepl the rewriting by
     making sure the former main interface keeps correct while its
@@ -459,12 +469,24 @@ def test_refactoring_process_expression(
         return f"{{{{ ref('{cte_name}') }}}}"
 
     def to_dbt_source_block(table: exp.Table) -> str:
-        return f"{{{{ source('{table.catalog or table.name}') }}}}"
+        return f"{{{{ source('my_source', '{table.name}') }}}}"
 
-    assert expected_metadata == main.process_expression(
-        parse_one(query_text),
+    provider = main.MetadataProvider(
         "final_model_name",
+        parse_one(query_text),
         to_dbt_ref_block,
         to_dbt_source_block,
-        expr_fn=lambda x: x.sql(pretty=False),
     )
+    assert expected_source_tuples == list(provider.iter_sources()), "iter_sources"
+    assert expected_cte_tuples == list(
+        map(
+            lambda tuple: (tuple[0], tuple[1].sql(pretty=False)),
+            provider.iter_cte_tuples(),
+        )
+    ), "iter_cte_tuples"
+    assert expected_model_tuples == list(
+        map(
+            lambda tuple: (tuple[0], tuple[1].sql(pretty=False)),
+            provider.iter_dbt_models(),
+        )
+    ), "iter_dbt__models"

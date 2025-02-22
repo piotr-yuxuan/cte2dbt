@@ -242,21 +242,11 @@ def process_expression(
     )
 
 
-class DbtModel(
-    BaseModel,
-    frozen=True,
-    arbitrary_types_allowed=True,
-):
-    name: str
-    cte_expr: exp.Expression
-    model_expr: exp.Expression
-
-
 class MetadataProvider:
     def __init__(
         self,
-        expr: exp.Expression,
         model_name: str,
+        expr: exp.Expression,
         to_dbt_ref_block: Callable[[str], str],
         to_dbt_source_block: Callable[[exp.Table], str],
     ):
@@ -281,7 +271,7 @@ class MetadataProvider:
             pass
         return iter(self.source_extractor.dbt_source_blocks.items())
 
-    def iter_dbt_models(self) -> Iterator[DbtModel]:
+    def iter_dbt_models(self) -> Iterator[Tuple[str, exp.Expression]]:
         """Yield instances of DbtModel."""
         final_select_expr = self.expr.copy()
         final_select_expr.args.pop("with", None)
@@ -298,8 +288,4 @@ class MetadataProvider:
             model_expr = self.source_extractor.extract(model_expr)
             model_expr = self.cte_extractor.extract(model_expr)
 
-            yield DbtModel(
-                name=cte_name,
-                cte_expr=cte_expr,
-                model_expr=model_expr,
-            )
+            yield (cte_name, model_expr)
