@@ -123,32 +123,6 @@ def source_table_fn(
     )
 
 
-def transform_source_tables(
-    cte_expr: exp.Expression,
-    dbt_ref_blocks: Dict[str, str],
-    dbt_source_blocks: Dict[str, str],
-    to_dbt_source_block: Callable,
-):
-    logger.info("Transforming source tables")
-    new_source_names = dbt_source_blocks.copy()
-
-    return (
-        transform_tables(
-            cte_expr,
-            table_predicate=lambda node: table_is_a_source(
-                dbt_ref_blocks,
-                node,
-            ),
-            table_transform=lambda table: source_table_fn(
-                table,
-                new_source_names,
-                to_dbt_source_block,
-            ),
-        ),
-        new_source_names,
-    )
-
-
 class BaseBlockTransformer(ABC):
     def __init__(self):
         self.dbt_ref_blocks: Dict[str, str] = dict()
