@@ -95,7 +95,6 @@ def to_fully_qualified_name(table: exp.Table) -> str:
 
 class BaseBlockTransformer(ABC):
     def __init__(self):
-        self.dbt_ref_blocks: Dict[str, str] = dict()
         self.dependencies: Dict[str, Set[str]] = defaultdict(set)
 
     @abstractmethod
@@ -193,9 +192,9 @@ class SourceBlockTransformer(BaseBlockTransformer):
 
 
 def merge_dicts_of_sets(
-    left: Dict[Any, Set],
-    right: Dict[Any, Set],
-) -> Dict[Any, Set]:
+    left: Dict[Any, Set[Any]],
+    right: Dict[Any, Set[Any]],
+) -> Dict[Any, Set[Any]]:
     result = defaultdict(set)
     for key, value in left.items():
         result[key] |= value
@@ -222,38 +221,40 @@ class Provider:
         self.cte_extractor = CTEBlockTransformer()
 
     def get_cte_tuples(self) -> List[Tuple[str, exp.Expression]]:
-        """Yield CTE name and expr from the parent expression."""
+        """Return tuples of CTE name and expr from the parent expression."""
         with_expr = self.expr.args.get("with", [])
         logger.debug("Extracting CTE tuples")
         return [(cte.alias, cte.this) for cte in with_expr]
 
     def get_sources(self) -> Dict[str, str]:
-        """Yield source table names from the extracted sources."""
+        """Return source table names from the extracted sources."""
         logger.info("Iterating over source tables")
-        # Realise the cached property as to avoid a complex API with
-        # dependent iterators.
-        _ = self._dbt_models
+        self._ensure_computed_dbt_models()
         return self.source_extractor.dbt_source_blocks
 
     def get_dbt_models(self) -> List[Tuple[str, exp.Expression]]:
-        """Yield instances of DbtModel."""
+        """Return tuples of model name and expr."""
+        self._ensure_computed_dbt_models()
         return self._dbt_models
 
     def model_dependencies(self) -> Dict[str, Set[str]]:
-        """Return a dependency dictionary where CTE whose name is key
-        depends on sources and CTE whose names are in value.
+        """Return a dependency dictionary where each CTE whose name is
+        a key depends on sources and CTEs whose names are in the
+        values.
 
         """
-        # Realise the cached property as to avoid a complex API with
-        # dependent iterators.
-        _ = self._dbt_models
+        self._ensure_computed_dbt_models()
         return merge_dicts_of_sets(
             self.source_extractor.dependencies,
             self.cte_extractor.dependencies,
         )
 
-    def to_model_expr(self, cte_name, cte_expr):
-        logger.debug(f"Processing DBT model: {cte_name}")
+    def to_model_expr(
+        self,
+        cte_name: str,
+        cte_expr: exp.Expression,
+    ) -> exp.Expression:
+        logger.debug(f"Processing dbt model: {cte_name}")
 
         self.dbt_ref_blocks[cte_name] = self.to_dbt_ref_block(cte_name)
 
@@ -273,7 +274,7 @@ class Provider:
 
     @cached_property
     def _dbt_models(self) -> List[Tuple[str, exp.Expression]]:
-        logger.info("Iterating over DBT models")
+        logger.info("Iterating over dbt models")
         final_select_expr = self.expr.copy()
         final_select_expr.args.pop("with", None)
 
@@ -284,3 +285,12 @@ class Provider:
                 [(self.model_name, final_select_expr)],
             )
         ]
+
+    def _ensure_computed_dbt_models(self) -> None:
+        """Computing dbt models performs some side effects. For
+        example it populates the sources and references dictionaries.
+        We need to ensure these computations happen when needed, but
+        only once.
+
+        """
+        _ = self._dbt_models
