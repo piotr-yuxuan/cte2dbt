@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from functools import cached_property, partial
+from functools import partial
 from itertools import chain
 from typing import Any, Callable, Dict, List, Set, Tuple
 
@@ -219,6 +219,7 @@ class Provider:
         self.dbt_ref_blocks: Dict[str, str] = dict()
         self.source_extractor = SourceBlockTransformer(self.to_dbt_source_block)
         self.cte_extractor = CTEBlockTransformer()
+        self._dbt_models = self._get_dbt_models()
 
     def get_cte_tuples(self) -> List[Tuple[str, exp.Expression]]:
         """Return tuples of CTE name and expr from the parent expression."""
@@ -229,12 +230,10 @@ class Provider:
     def get_sources(self) -> Dict[str, str]:
         """Return source table names from the extracted sources."""
         logger.info("Iterating over source tables")
-        self._ensure_computed_dbt_models()
         return self.source_extractor.dbt_source_blocks
 
     def get_dbt_models(self) -> List[Tuple[str, exp.Expression]]:
         """Return tuples of model name and expr."""
-        self._ensure_computed_dbt_models()
         return self._dbt_models
 
     def model_dependencies(self) -> Dict[str, Set[str]]:
@@ -243,7 +242,6 @@ class Provider:
         values.
 
         """
-        self._ensure_computed_dbt_models()
         return merge_dicts_of_sets(
             self.source_extractor.dependencies,
             self.cte_extractor.dependencies,
@@ -272,8 +270,7 @@ class Provider:
 
         return model_expr
 
-    @cached_property
-    def _dbt_models(self) -> List[Tuple[str, exp.Expression]]:
+    def _get_dbt_models(self) -> List[Tuple[str, exp.Expression]]:
         logger.info("Iterating over dbt models")
         final_select_expr = self.expr.copy()
         final_select_expr.args.pop("with", None)
@@ -285,12 +282,3 @@ class Provider:
                 [(self.model_name, final_select_expr)],
             )
         ]
-
-    def _ensure_computed_dbt_models(self) -> None:
-        """Computing dbt models performs some side effects. For
-        example it populates the sources and references dictionaries.
-        We need to ensure these computations happen when needed, but
-        only once.
-
-        """
-        _ = self._dbt_models
