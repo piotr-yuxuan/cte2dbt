@@ -83,7 +83,7 @@ The order guarantees that current model only relies on models that
 came earlier in the iteration.
 
 ``` python
-for model_name, model_expr in provider.iter_dbt_models():
+for model_name, model_expr in provider.get_dbt_models():
     print(f"-- Model: {model_name}")
     print(model_expr.sql(pretty=True))
 ```
