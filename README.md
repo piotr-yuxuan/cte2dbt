@@ -1,4 +1,4 @@
-# [`cte2dbt` 🚀](https://github.com/piotr-yuxuan/cte2dbt)
+# `cte2dbt` 🚀
 
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/cte2dbt)](https://pypi.org/project/cte2dbt/)
 [![PyPI - Status](https://img.shields.io/pypi/status/cte2dbt)](https://pypi.org/project/cte2dbt/)
