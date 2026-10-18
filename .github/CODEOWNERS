@@ -1,0 +1,6 @@
+# Enforce code-owner review through a repository ruleset; this file alone is not a gate.
+/.github/ @piotr-yuxuan
+/AGENTS.md @piotr-yuxuan
+/dev/ @piotr-yuxuan
+/pyproject.toml @piotr-yuxuan
+/uv.lock @piotr-yuxuan

@@ -1,0 +1,133 @@
+name: Repository checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *" # Fresh advisories and the newest sqlglot daily, UTC.
+    - cron: "41 8 * * 1" # External documentation links weekly, UTC.
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}-${{ github.event.schedule }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  checks:
+    name: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # Gitleaks checks history as well as the latest commit.
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - run: uv sync --locked
+      - name: Required checks
+        if: github.event_name != 'schedule'
+        run: uv run --locked python dev/scripts/check.py verify
+      - name: Workflow and Compose validation
+        if: github.event_name != 'schedule'
+        run: |
+          uv run --locked zizmor --offline .github
+          bash dev/scripts/tool.sh actionlint -color .github/workflows/*.yml
+          docker compose -f dev/resources/ci/compose.yaml --profile tools config --quiet
+      - name: Repository secret scan
+        if: github.event_name != 'schedule'
+        run: >-
+          bash dev/scripts/tool.sh gitleaks git /repo --redact
+          --report-format sarif --report-path /reports/gitleaks.sarif
+      - name: Daily dependency audit
+        if: github.event.schedule == '17 3 * * *'
+        run: uv run --locked python dev/scripts/check.py security
+      - name: Weekly documentation and external links
+        if: github.event.schedule == '41 8 * * 1'
+        run: uv run --locked python dev/scripts/check.py docs --external-links
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && github.event_name != 'schedule'
+        with:
+          name: checks-reports
+          path: dev/reports/
+          retention-days: 30
+          if-no-files-found: error
+
+  compatibility:
+    # The supported Python versions against both ends of the supported sqlglot range,
+    # also daily, because sqlglot releases break compatibility in minor versions too.
+    name: Python ${{ matrix.python }}, sqlglot ${{ matrix.resolution }}
+    if: github.event.schedule != '41 8 * * 1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.15"]
+        resolution: [lowest-direct, highest]
+        include:
+          - python: "3.12"
+            resolution: highest
+          - python: "3.13"
+            resolution: highest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Resolve and install the tests
+        env:
+          RESOLUTION: ${{ matrix.resolution }}
+        # The lock is re-resolved in this job only, on purpose, and never committed.
+        run: uv sync --resolution "$RESOLUTION" --upgrade --no-default-groups --group test
+      - run: uv run --no-sync python -c "import sqlglot; print('sqlglot', sqlglot.__version__)"
+      # DuckDB has no wheel for Python 3.15 yet: its execution tests skip there.
+      - run: uv run --no-sync python -m pytest -p no:cacheprovider
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          fail-on-scopes: runtime, development, unknown
+          license-check: false
+          comment-summary-in-pr: never
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # CodeQL publishes its results to code scanning.
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          tools: linked
+      - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          category: language-${{ matrix.language }}

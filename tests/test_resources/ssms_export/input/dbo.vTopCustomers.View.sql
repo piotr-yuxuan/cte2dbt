@@ -1,0 +1,7 @@
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE VIEW dbo.vTopCustomers AS
+SELECT TOP 10 customer_id, total FROM dbo.vOrders ORDER BY total DESC
+GO
