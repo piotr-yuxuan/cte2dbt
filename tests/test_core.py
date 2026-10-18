@@ -160,6 +160,13 @@ CASES = [
     ),
     pytest.param(
         TSQL,
+        [("dbo.v", "SELECT j.[key], t.id FROM OPENJSON(@j) AS j JOIN @t AS t ON t.id = j.[key]")],
+        {"v": "SELECT j.[key], t.id FROM OPENJSON(@j) AS j JOIN @t AS t ON t.id = j.[key]"},
+        ["v: OPENJSON(@j) AS j kept as written", "v: @t AS t kept as written"],
+        id="rowset functions and table variables are kept and reported",
+    ),
+    pytest.param(
+        TSQL,
         [
             ("dbo.v2", "SELECT * FROM dbo.V1"),
             ("dbo.v1", "SELECT id FROM dbo.Sales"),
