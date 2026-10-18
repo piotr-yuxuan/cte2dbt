@@ -421,7 +421,8 @@ CASES += [
 def test_a_self_reference_is_recursion_where_no_keyword_is_needed(dialect: str) -> None:
     project = convert(
         views(
-            dialect, ("v", "WITH r (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT n FROM r")
+            dialect,
+            ("v", "WITH r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r) SELECT n FROM r"),
         ),
         dialect=dialect,
         default_schema="s",
@@ -429,7 +430,7 @@ def test_a_self_reference_is_recursion_where_no_keyword_is_needed(dialect: str) 
     recursive, final = project.models
     assert recursive.name == "v__r"
     assert flat(recursive.sql) == flat(
-        "WITH r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT * FROM r"
+        "WITH r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r) SELECT * FROM r"
     )
     assert (recursive.refs, recursive.sources) == ((), ())
     assert final.refs == ("v__r",)
