@@ -61,8 +61,10 @@ Pass the folders that hold views only:
 cte2dbt exported/*/Views --output models/legacy
 ```
 
-The output directory must not exist or must be empty. To convert again, remove it or
-choose another one, then compare the two with `diff -r`.
+Convert all the views of one dbt project in one run: each run writes its own
+`sources.yml`, and dbt rejects a source declared in two files. The output directory must
+not exist or must be empty. To convert again, remove it or choose another one, then
+compare the two with `diff -r`.
 
 ## Act on the warnings
 

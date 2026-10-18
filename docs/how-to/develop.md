@@ -60,3 +60,14 @@ git merge --no-ff NNN-slug -F dev/reports/merge-decision.txt
 The decision states the scope, the reviewed base and head commits, the evidence and its
 limits, how each finding was settled, and any exception. Run `verify` again on the
 merged `main`.
+
+## Cut a release
+
+1. On the branch of the change, set the version, such as `uv version 2.1.0`, and add its
+   section to [the release notes](../reference/release-notes.md).
+2. After the merge, once the checks pass on `main`, create a GitHub release from `main`
+   whose tag is the version without a `v`, such as `2.1.0`, with the section of the
+   release notes as its description.
+3. Publishing the release runs `.github/workflows/python-publish.yml`, which checks again,
+   builds and uploads to PyPI, as [the CI reference](../reference/ci.md#publishing)
+   describes. Approve the `pypi` environment if it asks.
