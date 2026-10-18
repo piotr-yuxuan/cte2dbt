@@ -62,7 +62,7 @@ cte2dbt: error: MESSAGE
 ```
 
 A statement in a warning is cut after 80 characters. An error from sqlglot keeps its
-first line, which gives the line and column in the file.
+first line, which for a parse error gives the line and column in the file.
 
 ## Exit codes
 

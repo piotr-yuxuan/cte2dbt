@@ -19,8 +19,8 @@ _GO = re.compile(
 )
 """A line that holds only the batch separator GO, with an optional count and comment."""
 
-_VIEW = re.compile(r"\bVIEW\b", re.IGNORECASE)
-"""The word in a statement that sqlglot kept as text which may define a view."""
+_CREATE_VIEW = re.compile(r"\bCREATE\s+(?:OR\s+(?:ALTER|REPLACE)\s+)?VIEW\b", re.IGNORECASE)
+"""Text that defines a view, in a statement that is not read as a view."""
 
 _RECURSIVE_WITHOUT_KEYWORD = (TSQL, Oracle, Snowflake, SQLite)
 """Dialects in which a common table expression that names itself is recursive."""
@@ -112,49 +112,56 @@ class _Links:
 def read_script(text: str, *, dialect: str) -> Script:
     """Return the CREATE VIEW statements of a script, as SSMS or SqlPackage export them.
 
-    In a T-SQL script each line holding only GO becomes a semicolon, so that error line
-    numbers stay those of the text. USE statements and SET options switched ON are
-    ignored; any other statement is skipped with a warning. Raise ValueError for an
-    unknown dialect, and sqlglot.errors.ParseError for SQL that sqlglot cannot parse, for
-    SET QUOTED_IDENTIFIER OFF, and for a statement that may define a view but that sqlglot
-    could only keep as text.
+    A T-SQL script is split into batches at each line holding only GO, as sqlcmd does,
+    and error line numbers stay those of the text. USE statements and SET options switched
+    ON are ignored; any other statement is skipped with a warning. Raise ValueError for an
+    unknown dialect; sqlglot.errors.ParseError or TokenError for SQL that sqlglot cannot
+    read; and ParseError for SET QUOTED_IDENTIFIER OFF and for a statement that defines a
+    view but cannot be read as one, such as a view WITH CHECK OPTION or a view created by
+    dynamic SQL.
     """
     target = Dialect.get_or_raise(dialect)
     views: list[View] = []
     warnings: list[str] = []
-    for statement in sqlglot.parse(
-        _GO.sub(";", text) if isinstance(target, TSQL) else text, read=target
-    ):
-        if statement is None or isinstance(statement, exp.Use):
-            continue
-        sql = statement.sql(dialect=target)
-        settings = (
-            [item.sql(dialect=target).upper() for item in statement.expressions]
-            if isinstance(statement, exp.Set)
-            else []
-        )
-        if "QUOTED_IDENTIFIER OFF" in settings:
-            msg = "SET QUOTED_IDENTIFIER OFF: double-quoted text after it would be read as names"
-            raise ParseError(msg)
-        if isinstance(statement, exp.Command) and _VIEW.search(sql):
-            msg = f"sqlglot can only keep this statement as text: {sql[:80]}"
-            raise ParseError(msg)
-        if settings and all(setting.endswith(" ON") for setting in settings):
-            continue
-        if (
-            isinstance(statement, exp.Create)
-            and statement.kind == "VIEW"
-            and isinstance(statement.expression, exp.Query)
-        ):
-            name = statement.this
-            schema = name if isinstance(name, exp.Schema) else exp.Schema(this=name)
-            columns = tuple(
-                column.this if isinstance(column, exp.ColumnDef) else column
-                for column in schema.expressions
+    lines = 0
+    for batch in _GO.split(text) if isinstance(target, TSQL) else [text]:
+        statements = sqlglot.parse("\n" * lines + batch, read=target)
+        lines += batch.count("\n")
+        for statement in statements:
+            if statement is None or isinstance(statement, exp.Use):
+                continue
+            sql = statement.sql(dialect=target)
+            settings = (
+                [item.sql(dialect=target).upper() for item in statement.expressions]
+                if isinstance(statement, exp.Set)
+                else []
             )
-            views.append(View(schema.this, statement.expression, columns))
-            continue
-        warnings.append(f"skipped statement: {sql[:80]}")
+            if "QUOTED_IDENTIFIER OFF" in settings:
+                msg = (
+                    "SET QUOTED_IDENTIFIER OFF: double-quoted text after it would be read as names"
+                )
+                raise ParseError(msg)
+            if settings and all(setting.endswith(" ON") for setting in settings):
+                continue
+            if (
+                isinstance(statement, exp.Create)
+                and statement.kind == "VIEW"
+                and isinstance(statement.expression, exp.Query)
+            ):
+                name = statement.this
+                schema = name if isinstance(name, exp.Schema) else exp.Schema(this=name)
+                columns = tuple(
+                    column.this if isinstance(column, exp.ColumnDef) else column
+                    for column in schema.expressions
+                )
+                views.append(View(schema.this, statement.expression, columns))
+                continue
+            if _CREATE_VIEW.search(sql):
+                msg = f"this statement defines a view that cannot be read as one: {sql[:80]}"
+                raise ParseError(msg)
+            # dbt builds every view with SQL Server's default options, all ON.
+            note = "; the views after it are built with this option ON" if settings else ""
+            warnings.append(f"skipped statement: {sql[:80]}{note}")
     return Script(tuple(views), tuple(warnings))
 
 

@@ -1,7 +1,7 @@
 """Reading exported scripts: which statements become views, which are skipped, which fail."""
 
 import pytest
-from sqlglot.errors import ParseError
+from sqlglot.errors import ParseError, SqlglotError
 
 from cte2dbt import convert, read_script
 
@@ -45,7 +45,17 @@ def test_an_ssms_export_gives_its_views_in_order() -> None:
             ["WITH c AS (SELECT 1 AS a) SELECT a FROM c"],
             id="a query led by a semicolon",
         ),
-        pytest.param("SET ANSI_NULLS OFF", ["SET ANSI_NULLS OFF"], id="a SET option off"),
+        pytest.param(
+            "SET ANSI_NULLS OFF",
+            ["SET ANSI_NULLS OFF; the views after it are built with this option ON"],
+            id="a SET option off",
+        ),
+        pytest.param(
+            "IF EXISTS (SELECT * FROM sys.views WHERE name = 'v') DROP VIEW dbo.v",
+            # Cut after 80 characters.
+            ["IF EXISTS(SELECT * FROM sys.views WHERE name = 'v') BEGIN DROP VIEW dbo.v"],
+            id="a guarded drop",
+        ),
         pytest.param(
             "GRANT SELECT ON dbo.v TO excel_readers",
             ["GRANT SELECT ON dbo.v TO excel_readers"],
@@ -70,8 +80,14 @@ def test_other_statements_are_skipped_with_a_warning(text: str, skipped: list[st
         ),
         pytest.param(
             "CREATE VIEW v AS SELECT 1 AS x WITH CHECK OPTION",
-            "only keep this statement as text",
+            "defines a view that cannot be read",
             id="a view sqlglot cannot parse",
+        ),
+        pytest.param(
+            "IF NOT EXISTS (SELECT * FROM sys.views WHERE name = 'v')\n"
+            "EXEC dbo.sp_executesql @statement = N'CREATE VIEW dbo.v AS SELECT 1 AS x'\nGO",
+            "defines a view that cannot be read",
+            id="a view created by dynamic SQL",
         ),
         pytest.param(
             "SET ANSI_NULLS ON\nGO\nCREATE VIEW v AS\nSELECT (1",
@@ -106,3 +122,31 @@ def test_go_is_a_batch_separator_in_t_sql_only() -> None:
 def test_an_unknown_dialect_is_an_error() -> None:
     with pytest.raises(ValueError, match="nosuch"):
         read_script("SELECT 1", dialect="nosuch")
+
+
+def test_a_go_line_ends_every_statement_before_it() -> None:
+    script = read_script(
+        "USE [Sales]\nGO\n"
+        "IF EXISTS (SELECT * FROM sys.views WHERE object_id = OBJECT_ID(N'[dbo].[v1]'))\n"
+        "DROP VIEW [dbo].[v1]\nGO\n"
+        "SET ANSI_NULLS ON\nGO\n"
+        "CREATE VIEW [dbo].[v1] AS SELECT id FROM dbo.Sales\nGO\n"
+        "IF OBJECT_ID('dbo.v2', 'V') IS NOT NULL DROP VIEW dbo.v2;\nGO\n"
+        "CREATE VIEW dbo.v2 AS SELECT id FROM dbo.v1\nGO\n",
+        dialect="tsql",
+    )
+    assert [view.name.name for view in script.views] == ["v1", "v2"]
+    assert [warning.split("(")[0] for warning in script.warnings] == [
+        "skipped statement: IF EXISTS",
+        "skipped statement: IF NOT OBJECT_ID",
+    ]
+
+
+def test_a_go_line_inside_a_string_ends_the_batch_as_sqlcmd_would() -> None:
+    with pytest.raises(SqlglotError):
+        read_script("CREATE VIEW dbo.a AS SELECT 'x\nGO\ny' AS x", dialect="tsql")
+
+
+def test_a_view_whose_body_is_not_a_query_fails() -> None:
+    with pytest.raises(ParseError, match="defines a view that cannot be read"):
+        read_script("CREATE VIEW main.v AS VALUES (1), (2)", dialect="duckdb")

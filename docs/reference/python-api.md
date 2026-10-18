@@ -19,9 +19,11 @@ Return the `CREATE VIEW` and `CREATE OR ALTER VIEW` statements of a script, in s
 order, and a warning for each statement skipped.
 [The conversion rules](conversion-rules.md#statements) list how each statement is treated.
 
-Raises `ValueError` for an unknown dialect, and `sqlglot.errors.ParseError` for SQL that
-sqlglot cannot parse, for `SET QUOTED_IDENTIFIER OFF`, and for a statement that may
-define a view but that sqlglot could only keep as text.
+Raises `ValueError` for an unknown dialect, and `sqlglot.errors.SqlglotError` for SQL
+that cannot be read: `ParseError` for SQL that sqlglot cannot parse, for
+`SET QUOTED_IDENTIFIER OFF`, and for a statement that defines a view but cannot be read as
+one; `TokenError` for text that does not even split into tokens, such as an unterminated
+string.
 
 ## convert
 

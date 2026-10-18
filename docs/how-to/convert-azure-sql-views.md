@@ -21,7 +21,8 @@ The views of each schema are then in `exported/SCHEMA/Views/`.
 
 Alternatively, in SQL Server Management Studio, use **Tasks > Generate Scripts** on the
 views, with **One script file per object**. Under **Advanced**, set **Check for object
-existence** to False: otherwise each view is wrapped in dynamic SQL that cte2dbt skips.
+existence** to False: otherwise each view is created by dynamic SQL, which cte2dbt
+refuses to read.
 
 Do not export from `INFORMATION_SCHEMA.VIEWS`, which cuts definitions at 4000
 characters. `sys.sql_modules.definition` holds the full text when you script the export
@@ -73,6 +74,7 @@ Each warning names a file or a model:
 | Warning | Action |
 | --- | --- |
 | `FILE: skipped statement: ...` | The statement is not a view, such as a grant or an extended property. If the Excel users need a grant, add it with dbt's `grants` configuration. |
+| `FILE: skipped statement: SET ... OFF; the views after it are built with this option ON` | Look in the views after it for what the option changes. Under `ANSI_NULLS OFF`, rewrite `= NULL` and `<> NULL` as `IS NULL` and `IS NOT NULL`. |
 | `MODEL: ITEM kept as written` | A table-valued function, a temporary table or a linked-server name stays as written. Check that the database where dbt builds the model can run it; a user-defined function must exist there. |
 | `MODEL: renamed from VIEW` | The view name holds characters that a dbt model name cannot have. Add `{{ config(alias='VIEW') }}` as the first line of `MODEL.sql`, so that the database object keeps the name the workbooks use. |
 

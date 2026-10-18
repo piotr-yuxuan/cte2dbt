@@ -10,11 +10,13 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
 | Statement | Treatment |
 | --- | --- |
 | `CREATE VIEW`, `CREATE OR ALTER VIEW` | Read as a view, with its column list. View options such as `SCHEMABINDING` are not carried over. |
-| A line holding only `GO`, with an optional count, semicolon or comment | Ends a statement, in T-SQL and the dialects derived from it. As in SQL Server Management Studio, this also applies inside a block comment or a string. |
+| A line holding only `GO`, with an optional count, semicolon or `--` comment | Ends a batch, in T-SQL and the dialects derived from it, as sqlcmd does. Each batch is parsed on its own, so a guard such as `IF ... DROP VIEW` ends with its batch. Inside a string or block comment the line ends the batch too, which then fails to parse. |
 | `USE`; `SET` options switched `ON`; an empty statement | Ignored. |
 | `SET QUOTED_IDENTIFIER OFF` | Error: double-quoted text after it would be read as names. |
-| A statement that sqlglot can only keep as text and that mentions `VIEW`, such as a view `WITH CHECK OPTION` | Error: it may hide a view. |
-| Anything else: grants, `EXEC`, other `SET` options, `ALTER VIEW`, procedures, a query on its own | Skipped, with the warning `skipped statement: STATEMENT`. |
+| Another `SET` option, such as `SET ANSI_NULLS OFF` | Skipped, with a warning that the views after it are built with the option `ON`. |
+| A statement that defines a view but cannot be read as one: a view `WITH CHECK OPTION`, a view created by dynamic SQL in `EXEC`, a view whose body is not a query | Error. |
+| SQL that sqlglot cannot parse | Error. |
+| Anything else: grants, `EXEC`, `ALTER VIEW`, a guarded `DROP VIEW`, procedures, a query on its own | Skipped, with the warning `skipped statement: STATEMENT`. |
 
 ## Tables
 
