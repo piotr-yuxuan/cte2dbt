@@ -1,6 +1,7 @@
 """Split SQL view definitions into dbt models, one per common table expression."""
 
 import graphlib
+import itertools
 import json
 import re
 from collections import Counter
@@ -222,6 +223,27 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
     return Project(
         tuple(models[name] for name in order), tuple(sources), tuple(conversion.warnings)
     )
+
+
+def dbt_files(project: Project) -> dict[str, str]:
+    """Return the text of each file to write: <model>.sql per model, and sources.yml.
+
+    sources.yml has one dbt source per database and schema; every scalar is written as a
+    YAML double-quoted string.
+    """
+    files = {f"{model.name}.sql": model.sql + "\n" for model in project.models}
+    lines = ["version: 2", "", "sources:" if project.sources else "sources: []"]
+    groups = itertools.groupby(
+        sorted(project.sources), lambda source: (source.source_name, source.database, source.schema)
+    )
+    for (name, database, schema), tables in groups:
+        lines.append(f"  - name: {_literal(name)}")
+        if database:
+            lines.append(f"    database: {_literal(database)}")
+        lines.extend([f"    schema: {_literal(schema)}", "    tables:"])
+        lines.extend(f"      - name: {_literal(source.table)}" for source in tables)
+    files["sources.yml"] = "\n".join(lines) + "\n"
+    return files
 
 
 def _rewrite(
