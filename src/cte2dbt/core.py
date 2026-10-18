@@ -139,8 +139,8 @@ def read_script(text: str, *, dialect: str) -> Script:
     ON are ignored; any other statement is skipped with a warning. Raise ValueError for an
     unknown dialect or malformed settings; sqlglot.errors.ParseError or TokenError for SQL
     that sqlglot cannot read; and ParseError for SET QUOTED_IDENTIFIER OFF and for a
-    statement that defines a view but cannot be read as one, such as a view WITH CHECK
-    OPTION or a view created by dynamic SQL.
+    statement that defines a view but cannot be read as one, such as a T-SQL view WITH
+    CHECK OPTION or a view created by dynamic SQL.
     """
     target = _dialect(dialect)
     views: list[View] = []

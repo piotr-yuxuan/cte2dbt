@@ -291,6 +291,14 @@ def test_views_with_modifiers_that_sqlglot_reads_are_read(text: str, dialect: st
     assert script.warnings == ()
 
 
+def test_an_oracle_view_keeps_its_check_option_in_the_model() -> None:
+    script = read_script("CREATE VIEW s.v AS SELECT a FROM s.t WITH CHECK OPTION", dialect="oracle")
+    project = convert(script.views, dialect="oracle", default_schema="s")
+    assert [" ".join(model.sql.split()) for model in project.models] == [
+        'SELECT a FROM {{ source("s", "t") }} t WITH CHECK OPTION'
+    ]
+
+
 def test_a_materialized_cte_does_not_make_a_materialised_view() -> None:
     script = read_script(
         "CREATE VIEW v AS WITH c AS MATERIALIZED (SELECT 1 AS a) SELECT * FROM c",
