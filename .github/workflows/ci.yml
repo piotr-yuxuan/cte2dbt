@@ -33,7 +33,7 @@ jobs:
       - name: Workflow and Compose validation
         if: github.event_name != 'schedule'
         run: |
-          uv run --locked zizmor --offline .github/workflows
+          uv run --locked zizmor --offline .github
           bash dev/scripts/tool.sh actionlint -color .github/workflows/*.yml
           docker compose -f dev/resources/ci/compose.yaml --profile tools config --quiet
       - name: Repository secret scan

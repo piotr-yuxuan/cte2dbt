@@ -7,7 +7,7 @@ full commit hash.
 
 | Job | When | Evidence |
 | --- | --- | --- |
-| `checks` | Not on schedules | `check.py verify`; zizmor and actionlint on the workflows; the tool catalogue is valid Compose; gitleaks over the whole history. Reports are kept for 30 days. |
+| `checks` | Not on schedules | `check.py verify`; zizmor on the workflows and the Dependabot configuration, and actionlint on the workflows; the tool catalogue is valid Compose; gitleaks over the whole history. Reports are kept for 30 days. |
 | `checks` | Daily, 03:17 UTC | `check.py security`, for advisories published since the last change. |
 | `checks` | Weekly, Monday 08:41 UTC | `check.py docs --external-links`. |
 | `compatibility` | Not on the weekly schedule | The tests on Python 3.11 and 3.15 against the oldest and the newest allowed sqlglot, and on 3.12 and 3.13 against the newest. The lock is re-resolved in this job only. |
@@ -36,14 +36,14 @@ until the Trusted Publisher on PyPI is updated. One release is published at a ti
 `dev/resources/ci/compose.yaml` lists actionlint and gitleaks as images pinned by digest.
 `dev/scripts/tool.sh` runs one of them with the repository mounted read-only, no
 capabilities, and no access to the container engine. Dependabot proposes updates to the
-uv dependencies, the actions and these images every Monday; nothing is merged
-automatically.
+uv dependencies, the actions and these images every Monday, for releases at least seven
+days old; nothing is merged automatically.
 
 ## Run a job locally
 
 ```sh
 uv run --locked python dev/scripts/check.py verify
-uv run --locked zizmor --offline .github/workflows
+uv run --locked zizmor --offline .github
 bash dev/scripts/tool.sh actionlint -color .github/workflows/*.yml
 bash dev/scripts/tool.sh gitleaks git /repo --redact
 ```

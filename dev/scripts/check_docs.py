@@ -16,7 +16,9 @@ LINK = re.compile(r"\]\(([^)\s]+)\)")
 SCHEME = re.compile(r"[a-z]+:")
 FORBIDDEN = {
     "a Unicode dash": re.compile(r"[\u2010-\u2015\u2212]"),
-    "an emoji": re.compile(r"[\u2600-\u27bf\u20e3\U0001f300-\U0001faff]"),
+    "an emoji": re.compile(
+        r"[\u231a-\u23ff\u2600-\u27bf\u2b00-\u2bff\u20e3\ufe0f\U0001f000-\U0001faff]"
+    ),
     "a home directory": re.compile(r"/home/|/Users/"),
 }
 TIMEOUT_SECONDS = 15
