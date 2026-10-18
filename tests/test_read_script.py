@@ -154,9 +154,19 @@ def test_a_go_line_inside_a_string_ends_the_batch_as_sqlcmd_would() -> None:
         read_script("CREATE VIEW dbo.a AS SELECT 'x\nGO\ny' AS x", dialect="tsql")
 
 
-def test_a_view_whose_body_is_not_a_query_fails() -> None:
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("CREATE VIEW main.v AS VALUES (1), (2)", id="alone"),
+        pytest.param(
+            "CREATE VIEW main.v AS VALUES (1), (2) -- /* x\n",
+            id="before a line comment that holds a block comment opening",
+        ),
+    ],
+)
+def test_a_view_whose_body_is_not_a_query_fails(text: str) -> None:
     with pytest.raises(ParseError, match="defines a view that cannot be read"):
-        read_script("CREATE VIEW main.v AS VALUES (1), (2)", dialect="duckdb")
+        read_script(text, dialect="duckdb")
 
 
 def test_a_guarded_drop_is_skipped() -> None:
@@ -216,11 +226,6 @@ def test_a_guarded_drop_is_skipped() -> None:
             "clickhouse",
             id="a window view",
         ),
-        pytest.param(
-            "CREATE VIEW main.v AS VALUES (1), (2) -- /* x\n",
-            "duckdb",
-            id="a block comment opened inside a line comment",
-        ),
     ],
 )
 def test_views_with_modifiers_sqlglot_keeps_as_text_fail(text: str, dialect: str) -> None:
@@ -247,11 +252,28 @@ def test_views_with_modifiers_sqlglot_keeps_as_text_fail(text: str, dialect: str
         pytest.param(
             "CREATE MATERIALIZED VIEW mv AS SELECT 1 AS a", "postgres", id="a Postgres view"
         ),
+        pytest.param(
+            "CREATE MATERIALIZED VIEW mv AUTO REFRESH YES AS SELECT 1 AS a",
+            "redshift",
+            id="a Redshift view",
+        ),
+        pytest.param(
+            "CREATE MATERIALIZED VIEW mv AS SELECT 1 AS a", "databricks", id="a Databricks view"
+        ),
     ],
 )
 def test_materialised_views_that_sqlglot_reads_fail(text: str, dialect: str) -> None:
     with pytest.raises(ParseError, match="defines a view that cannot be read"):
         read_script(text, dialect=dialect)
+
+
+def test_a_materialized_cte_does_not_make_a_materialised_view() -> None:
+    script = read_script(
+        "CREATE VIEW v AS WITH c AS MATERIALIZED (SELECT 1 AS a) SELECT * FROM c",
+        dialect="postgres",
+    )
+    assert [view.name.name for view in script.views] == ["v"]
+    assert script.warnings == ()
 
 
 def test_only_options_that_dbt_switches_on_are_flagged() -> None:
