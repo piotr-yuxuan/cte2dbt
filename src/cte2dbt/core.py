@@ -396,8 +396,7 @@ def _requalify(body: exp.Query, links: _Links, conversion: _Conversion, model: s
             scope = id(alias.find_ancestor(exp.Select))
             exposed_by.setdefault(scope, []).append((_key(alias.this, dialect), alias))
     for column in list(body.find_all(exp.Column)):
-        # A column outside any SELECT, as in the ORDER BY of a UNION, is left as written.
-        if not column.args.get("db") or column.find_ancestor(exp.Select) is None:
+        if not column.args.get("db"):
             continue
         key = _relation(column, conversion)[0]
         if not any(_same_table(key, table) for table in links.aliased.values()):
@@ -408,6 +407,9 @@ def _requalify(body: exp.Query, links: _Links, conversion: _Conversion, model: s
         while select is not None and not exposed:
             exposed = [alias for name, alias in exposed_by.get(id(select), []) if name == key[-1]]
             select = select.find_ancestor(exp.Select)
+        # No SELECT exposes the name, as for a column in the ORDER BY of a UNION: leave it.
+        if not exposed:
+            continue
         owners = [links.aliased.get(id(alias)) for alias in exposed]
         if len(owners) != 1 or not owners[0] or not _same_table(key, owners[0]):
             msg = (

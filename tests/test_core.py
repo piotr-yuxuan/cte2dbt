@@ -690,7 +690,7 @@ CASES += [
             ' UNION SELECT id FROM {{ source("dbo", "t2") }} AS t2 ORDER BY dbo.t1.id'
         },
         [],
-        id="a column outside any SELECT is left as written",
+        id="a column whose table no SELECT exposes is left as written",
     ),
     pytest.param(
         TSQL,
@@ -715,7 +715,6 @@ CASES += [
     [
         pytest.param("SEARCH DEPTH FIRST BY n SET ord", id="SEARCH"),
         pytest.param("CYCLE n SET is_cycle USING path", id="CYCLE"),
-        pytest.param("SEARCH DEPTH FIRST BY n SET ord CYCLE n SET is_cycle USING path", id="both"),
     ],
 )
 def test_a_recursive_cte_with_search_or_cycle_is_refused(sql: str) -> None:

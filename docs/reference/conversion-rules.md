@@ -64,8 +64,8 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
   when that `SELECT` exposes the name more than once, or for another table, so that the
   shortened column would bind elsewhere, this is an error. A database written on one side
   only does not tell two names apart. A qualifier that names another table, such as a
-  property of a column, and a column outside any `SELECT`, such as in the `ORDER BY` of a
-  `UNION`, are left as they are.
+  property of a column, and a column whose table no enclosing `SELECT` exposes, such as in
+  the `ORDER BY` of a `UNION`, are left as they are.
 - A common table expression or a view with a column list becomes
   `SELECT * FROM (QUERY) AS NAME(COLUMNS)`.
 - A recursive common table expression becomes `WITH NAME AS (QUERY) SELECT * FROM NAME`,
