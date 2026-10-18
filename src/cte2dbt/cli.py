@@ -40,6 +40,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--default-schema",
         default="dbo",
+        metavar="SCHEMA",
         help="schema of the tables that a script names without one (default: %(default)s)",
     )
     args = parser.parse_args(argv)
