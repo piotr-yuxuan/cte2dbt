@@ -20,8 +20,9 @@ _GO = re.compile(
 """A line that holds only the batch separator GO, with an optional count and comment."""
 
 _CREATE_VIEW = re.compile(
-    r"\bCREATE\s+(?:(?:OR\s+(?:ALTER|REPLACE)|NO\s*FORCE|FORCE|(?:NON)?EDITIONABLE|EDITIONING"
-    r"|MATERIALIZED|SECURE|RECURSIVE|TEMP(?:ORARY)?|LOCAL|GLOBAL)\s+)*VIEW\b",
+    r"\bCREATE\s+(?:(?:OR\s+(?:ALTER|REPLACE|REFRESH)|NO\s*FORCE|FORCE|(?:NON)?EDITIONABLE"
+    r"|EDITIONING|MATERIALIZED|SECURE|RECURSIVE|TEMP(?:ORARY)?|LOCAL|GLOBAL|LIVE|WINDOW"
+    r"|JSON\s+RELATIONAL\s+DUALITY)\s+)*VIEW\b",
     re.IGNORECASE,
 )
 """Text that defines a view, with the modifiers that dialects allow between CREATE and VIEW."""
@@ -185,10 +186,9 @@ def read_script(text: str, *, dialect: str) -> Script:
             permission = isinstance(statement, (exp.Grant, exp.Revoke)) or (
                 isinstance(statement, exp.Command) and statement.name.upper() in _PERMISSIONS
             )
-            if (
-                _CREATE_VIEW.search(statement.sql(dialect=target, comments=False))
-                and not permission
-            ):
+            # The tokens drop every comment, even in text sqlglot kept raw, but keep strings.
+            words = " ".join(token.text for token in target.tokenize(sql))
+            if _CREATE_VIEW.search(words) and not permission:
                 msg = f"this statement defines a view that cannot be read as one: {sql[:80]}"
                 raise ParseError(msg)
             note = (
@@ -407,9 +407,6 @@ def _requalify(body: exp.Query, links: _Links, conversion: _Conversion, model: s
         while select is not None and not exposed:
             exposed = [alias for name, alias in exposed_by.get(id(select), []) if name == key[-1]]
             select = select.find_ancestor(exp.Select)
-        # No SELECT exposes the name, as for a column in the ORDER BY of a UNION: leave it.
-        if not exposed:
-            continue
         owners = [links.aliased.get(id(alias)) for alias in exposed]
         if len(owners) != 1 or not owners[0] or not _same_table(key, owners[0]):
             msg = (
@@ -473,7 +470,7 @@ def _recursive(dialect: Dialect, cte: exp.CTE, *, explicit: bool) -> bool:
     # Whether a CTE that names itself reads itself: only a UNION of an anchor and a recursive
     # part can, under WITH RECURSIVE or in a dialect that needs no keyword.
     recursion = explicit or isinstance(dialect, _RECURSIVE_WITHOUT_KEYWORD)
-    return recursion and isinstance(cte.this, exp.SetOperation)
+    return recursion and isinstance(cte.this.unnest(), exp.SetOperation)
 
 
 def _forward(dialect: Dialect, *, explicit: bool) -> bool:

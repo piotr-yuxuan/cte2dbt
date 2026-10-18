@@ -145,6 +145,10 @@ DUCKDB_VIEWS = {
         " (WITH orders AS (SELECT * FROM orders WHERE amount > 10) SELECT * FROM orders) AS q)"
         " SELECT * FROM a"
     ),
+    "a recursive union in parentheses, named like a table": (
+        "WITH RECURSIVE orders(id) AS"
+        " ((SELECT 100 UNION ALL SELECT id + 1 FROM orders WHERE id < 102)) SELECT id FROM orders"
+    ),
     "a recursive CTE with USING KEY": (
         "WITH RECURSIVE tbl(a, b) USING KEY (a) AS"
         " (SELECT a, b FROM (VALUES (1, 3), (2, 4)) AS t(a, b)"

@@ -14,7 +14,7 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
 | `USE`; `SET` options switched `ON`; an empty statement | Ignored. |
 | `SET QUOTED_IDENTIFIER OFF` | Error: double-quoted text after it would be read as names. |
 | Another `SET` statement | Skipped with a warning. When it switches off an option that dbt's connections switch on (`ANSI_NULLS`, `ANSI_PADDING`, `ANSI_WARNINGS`, `ARITHABORT`, `CONCAT_NULL_YIELDS_NULL`), the warning adds that the views after it are built with the option `ON`. |
-| A statement that defines a view but cannot be read as one: a view `WITH CHECK OPTION`, a materialised view, an Oracle `EDITIONABLE` view, a view created by dynamic SQL in `EXEC`, a view whose body is not a query | Error. The statement is found by its text, `CREATE`, then any of the modifiers `OR ALTER`, `OR REPLACE`, `FORCE`, `NOFORCE`, `EDITIONABLE`, `NONEDITIONABLE`, `EDITIONING`, `MATERIALIZED`, `SECURE`, `RECURSIVE`, `TEMP`, `TEMPORARY`, `LOCAL` and `GLOBAL`, then `VIEW`. Comments are not searched, and a grant or revoke of the `CREATE VIEW` permission is not a view. |
+| A statement that defines a view but cannot be read as one: a view `WITH CHECK OPTION`, a materialised view, an Oracle `EDITIONABLE` view, a view created by dynamic SQL in `EXEC`, a view whose body is not a query | Error. The statement is found by its text, `CREATE`, then any of the modifiers `OR ALTER`, `OR REPLACE`, `OR REFRESH`, `FORCE`, `NOFORCE`, `EDITIONABLE`, `NONEDITIONABLE`, `EDITIONING`, `MATERIALIZED`, `SECURE`, `RECURSIVE`, `TEMP`, `TEMPORARY`, `LOCAL`, `GLOBAL`, `LIVE`, `WINDOW` and `JSON RELATIONAL DUALITY`, then `VIEW`. Comments are not searched, strings are, and so is all the text after `PRINT`, which sqlglot reads as one string. A grant or revoke of the `CREATE VIEW` permission is not a view. MySQL's `ALGORITHM` and `DEFINER` clauses are not modifiers, so such a view that sqlglot cannot read is only skipped. |
 | SQL that sqlglot cannot parse | Error. |
 | Anything else: grants, `EXEC`, `ALTER VIEW`, a guarded `DROP VIEW`, procedures, a query on its own | Skipped, with the warning `skipped statement: STATEMENT`. |
 
@@ -64,8 +64,8 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
   when that `SELECT` exposes the name more than once, or for another table, so that the
   shortened column would bind elsewhere, this is an error. A database written on one side
   only does not tell two names apart. A qualifier that names another table, such as a
-  property of a column, and a column whose table no enclosing `SELECT` exposes, such as in
-  the `ORDER BY` of a `UNION`, are left as they are.
+  property of a column, is left as it is. A column whose table no enclosing `SELECT`
+  exposes, such as one in the `ORDER BY` of a `UNION`, is an error.
 - A common table expression or a view with a column list becomes
   `SELECT * FROM (QUERY) AS NAME(COLUMNS)`.
 - A recursive common table expression becomes `WITH NAME AS (QUERY) SELECT * FROM NAME`,

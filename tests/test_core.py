@@ -684,16 +684,6 @@ CASES += [
     ),
     pytest.param(
         TSQL,
-        [("dbo.v", "SELECT dbo.t1.id FROM dbo.t1 UNION SELECT id FROM dbo.t2 ORDER BY dbo.t1.id")],
-        {
-            "v": 'SELECT t1.id FROM {{ source("dbo", "t1") }} AS t1'
-            ' UNION SELECT id FROM {{ source("dbo", "t2") }} AS t2 ORDER BY dbo.t1.id'
-        },
-        [],
-        id="a column whose table no SELECT exposes is left as written",
-    ),
-    pytest.param(
-        TSQL,
         [
             (
                 "dbo.v",
@@ -728,6 +718,9 @@ def test_a_recursive_cte_with_search_or_cycle_is_refused(sql: str) -> None:
     [
         pytest.param('SELECT * FROM RAW.t1 JOIN "RAW".t2 ON TRUE', id="two schemas spelt alike"),
         pytest.param('SELECT * FROM Foo JOIN "Foo" ON TRUE', id="two tables spelt alike"),
+        pytest.param(
+            'SELECT * FROM Db.s1.t JOIN "Db".s2.u ON TRUE', id="two databases spelt alike"
+        ),
     ],
 )
 def test_names_that_only_quoting_tells_apart_are_refused(sql: str) -> None:
@@ -749,6 +742,20 @@ def test_names_that_only_quoting_tells_apart_are_refused(sql: str) -> None:
 def test_a_column_that_would_bind_elsewhere_is_refused(sql: str) -> None:
     with pytest.raises(ValueError, match="would bind to another table"):
         convert(views("tsql", ("dbo.v", sql)), dialect="tsql", default_schema="dbo")
+
+
+CASES += [
+    pytest.param(
+        DUCKDB,
+        [("main.v", "WITH RECURSIVE b AS (SELECT id + 1 AS id FROM b) SELECT * FROM b")],
+        {
+            "v__b": 'SELECT id + 1 AS id FROM {{ source("main", "b") }} AS b',
+            "v": 'SELECT * FROM {{ ref("v__b") }} AS b',
+        },
+        [],
+        id="a CTE that is not a union reads the table of its name under RECURSIVE",
+    ),
+]
 
 
 @pytest.mark.parametrize("dialect", ["tsql", "oracle", "snowflake", "sqlite"])
@@ -857,6 +864,16 @@ def test_sources_are_listed_once_per_table() -> None:
         ),
         pytest.param([("dbo.a", "SELECT * FROM a")], "cycle", id="a view reading itself"),
         pytest.param(
+            [
+                (
+                    "dbo.v",
+                    "SELECT dbo.t1.id FROM dbo.t1 UNION SELECT id FROM dbo.t2 ORDER BY dbo.t1.id",
+                )
+            ],
+            "would bind to another table",
+            id="a schema-qualified column in the ORDER BY of a union",
+        ),
+        pytest.param(
             [("dbo.v", "SELECT '__cte2dbt_0__' AS x")],
             "reserved text",
             id="the placeholder text in the SQL",
@@ -923,3 +940,8 @@ def test_the_target_of_select_into_is_kept() -> None:
     project = convert([View(exp.to_table("v"), query)], dialect="tsql", default_schema="dbo")
     assert project.warnings == ("v: dbo.archive kept as written",)
     assert project.sources == (Source("", "dbo", "s"),)
+
+
+def test_malformed_dialect_settings_are_a_value_error() -> None:
+    with pytest.raises(ValueError, match="malformed dialect settings"):
+        convert([], dialect="tsql, normalization_strategy", default_schema="dbo")

@@ -183,6 +183,33 @@ def test_a_guarded_drop_is_skipped() -> None:
             "postgres",
             id="a materialised view",
         ),
+        pytest.param(
+            "CREATE RECURSIVE VIEW v (n) AS SELECT 1 UNION ALL SELECT n + 1 FROM v",
+            "postgres",
+            id="a recursive view",
+        ),
+        pytest.param(
+            "CREATE OR REPLACE NOFORCE VIEW s.v AS SELECT 1 AS a FROM dual",
+            "oracle",
+            id="an Oracle NOFORCE view",
+        ),
+        pytest.param(
+            "CREATE/*x*/VIEW dbo.v AS SELECT 1 AS a WITH CHECK OPTION",
+            "tsql",
+            id="a comment between CREATE and VIEW",
+        ),
+        pytest.param(
+            "CREATE OR REFRESH MATERIALIZED VIEW v SCHEDULE CRON '0 0 * * * ?' AS SELECT 1 AS a",
+            "databricks",
+            id="a Databricks refreshed view",
+        ),
+        pytest.param("CREATE LIVE VIEW lv AS SELECT 1 AS a", "clickhouse", id="a live view"),
+        pytest.param(
+            "CREATE WINDOW VIEW wv AS"
+            " SELECT count(id) FROM t GROUP BY tumble(ts, INTERVAL '10' SECOND)",
+            "clickhouse",
+            id="a window view",
+        ),
     ],
 )
 def test_views_with_modifiers_sqlglot_keeps_as_text_fail(text: str, dialect: str) -> None:
@@ -237,6 +264,13 @@ def test_each_batch_is_parsed_alone(monkeypatch: pytest.MonkeyPatch) -> None:
             "CREATE VIEW dbo.v AS SELECT 1 AS a\nGO\nGRANT CREATE VIEW ON SCHEMA dbo TO bob",
             "tsql",
             id="a parsed grant of the permission",
+        ),
+        pytest.param(
+            "CREATE VIEW dbo.v AS SELECT 1 AS a\nGO\n"
+            "CREATE TRIGGER dbo.trg ON dbo.t AFTER INSERT AS BEGIN\n"
+            " -- CREATE VIEW dbo.x\n SELECT 1 END",
+            "tsql",
+            id="a comment inside a trigger kept as text",
         ),
         pytest.param(
             "CREATE VIEW v AS SELECT 1 AS a; REVOKE CREATE VIEW ON SCHEMA db.s FROM ROLE r",
