@@ -7,10 +7,19 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
+import sqlglot
 from sqlglot import exp
 from sqlglot.dialects import TSQL, Oracle, Snowflake, SQLite
 from sqlglot.dialects.dialect import Dialect
-from sqlglot.errors import ErrorLevel
+from sqlglot.errors import ErrorLevel, ParseError
+
+_GO = re.compile(
+    r"^[ \t]*GO(?:[ \t]+\d+)?[ \t]*;?[ \t]*(?:--[^\r\n]*)?\r?$", re.IGNORECASE | re.MULTILINE
+)
+"""A line that holds only the batch separator GO, with an optional count and comment."""
+
+_VIEW = re.compile(r"\bVIEW\b", re.IGNORECASE)
+"""The word in a statement that sqlglot kept as text which may define a view."""
 
 _RECURSIVE_WITHOUT_KEYWORD = (TSQL, Oracle, Snowflake, SQLite)
 """Dialects in which a common table expression that names itself is recursive."""
@@ -32,6 +41,14 @@ class View:
     name: exp.Table
     query: exp.Query
     columns: tuple[exp.Identifier, ...] = ()
+
+
+@dataclass(frozen=True)
+class Script:
+    """The views a script defines, in script order, and the statements it skipped."""
+
+    views: tuple[View, ...]
+    warnings: tuple[str, ...]
 
 
 @dataclass(frozen=True, order=True)
@@ -83,6 +100,55 @@ class _Links:
     refs: set[str] = field(default_factory=set)
     sources: set[Source] = field(default_factory=set)
     recursive: bool = False
+
+
+def read_script(text: str, *, dialect: str) -> Script:
+    """Return the CREATE VIEW statements of a script, as SSMS or SqlPackage export them.
+
+    In a T-SQL script each line holding only GO becomes a semicolon, so that error line
+    numbers stay those of the text. USE statements and SET options switched ON are
+    ignored; any other statement is skipped with a warning. Raise ValueError for an
+    unknown dialect, and sqlglot.errors.ParseError for SQL that sqlglot cannot parse, for
+    SET QUOTED_IDENTIFIER OFF, and for a statement that may define a view but that sqlglot
+    could only keep as text.
+    """
+    target = Dialect.get_or_raise(dialect)
+    views: list[View] = []
+    warnings: list[str] = []
+    for statement in sqlglot.parse(
+        _GO.sub(";", text) if isinstance(target, TSQL) else text, read=target
+    ):
+        if statement is None or isinstance(statement, exp.Use):
+            continue
+        sql = statement.sql(dialect=target)
+        settings = (
+            [item.sql(dialect=target).upper() for item in statement.expressions]
+            if isinstance(statement, exp.Set)
+            else []
+        )
+        if "QUOTED_IDENTIFIER OFF" in settings:
+            msg = "SET QUOTED_IDENTIFIER OFF: double-quoted text after it would be read as names"
+            raise ParseError(msg)
+        if isinstance(statement, exp.Command) and _VIEW.search(sql):
+            msg = f"sqlglot can only keep this statement as text: {sql[:80]}"
+            raise ParseError(msg)
+        if settings and all(setting.endswith(" ON") for setting in settings):
+            continue
+        if (
+            isinstance(statement, exp.Create)
+            and statement.kind == "VIEW"
+            and isinstance(statement.expression, exp.Query)
+        ):
+            name = statement.this
+            schema = name if isinstance(name, exp.Schema) else exp.Schema(this=name)
+            columns = tuple(
+                column.this if isinstance(column, exp.ColumnDef) else column
+                for column in schema.expressions
+            )
+            views.append(View(schema.this, statement.expression, columns))
+            continue
+        warnings.append(f"skipped statement: {sql[:80]}")
+    return Script(tuple(views), tuple(warnings))
 
 
 def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Project:
