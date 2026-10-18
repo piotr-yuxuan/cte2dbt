@@ -36,7 +36,13 @@ requires = ["uv_build>=0.13.1,<0.14"]
 build-backend = "uv_build"
 
 [dependency-groups]
-test = ["pytest>=9.1.1,<10"]
+test = [
+    # No CPython 3.15 wheel yet: the execution tests skip there, never in check.py.
+    "duckdb>=1.5.6,<2; python_version < '3.15'",
+    "hypothesis>=6.170.1,<7",
+    "jinja2>=3.1.6,<4",
+    "pytest>=9.1.1,<10",
+]
 dev = [
     { include-group = "test" },
     "import-linter>=2.15,<3",
@@ -62,8 +68,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # Asserts are the test idiom; expectations are literal; test functions need no docstring; the
-# test modules sit in a rootdir without __init__.py.
-"tests/**" = ["S101", "PLR2004", "D1", "INP001"]
+# test modules sit in a rootdir without __init__.py; the SQL they build from their own constants
+# runs on in-memory DuckDB, and the Jinja they render is SQL, not HTML.
+"tests/**" = ["S101", "PLR2004", "D1", "INP001", "S608", "S701"]
 # Standard output and standard error are the interface of the command line.
 "src/cte2dbt/cli.py" = ["T201"]
 # Standalone scripts, not a package, that print their progress and run fixed tool commands;
