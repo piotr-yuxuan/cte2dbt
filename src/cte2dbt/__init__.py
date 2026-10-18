@@ -223,9 +223,8 @@ class Provider:
 
     def get_cte_tuples(self) -> List[Tuple[str, exp.Expression]]:
         """Return tuples of CTE name and expr from the parent expression."""
-        with_expr = self.expr.args.get("with", [])
         logger.debug("Extracting CTE tuples")
-        return [(cte.alias, cte.this) for cte in with_expr]
+        return [(cte.alias, cte.this) for cte in self.expr.ctes]
 
     def get_sources(self) -> Dict[str, str]:
         """Return source table names from the extracted sources."""
@@ -273,7 +272,10 @@ class Provider:
     def _get_dbt_models(self) -> List[Tuple[str, exp.Expression]]:
         logger.info("Iterating over dbt models")
         final_select_expr = self.expr.copy()
-        final_select_expr.args.pop("with", None)
+        # sqlglot 28 renamed the arg key "with" to "with_": pop the node, not the key.
+        ctes = final_select_expr.ctes
+        if ctes:
+            ctes[0].parent.pop()
 
         return [
             (cte_name, self.to_model_expr(cte_name, cte_expr))
