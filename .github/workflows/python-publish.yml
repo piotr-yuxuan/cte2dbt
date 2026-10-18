@@ -1,11 +1,5 @@
-# This workflow will upload a Python Package to PyPI when a release is created
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python#publishing-to-package-registries
-
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
+# Check, build and publish a GitHub release to PyPI. PyPI's Trusted Publisher names this
+# file and the pypi environment: renaming either stops publishing.
 name: Upload Python Package
 
 on:
@@ -15,53 +9,53 @@ on:
 permissions:
   contents: read
 
+# One release at a time, and never cancel an upload half-way.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
   release-build:
-    runs-on: ubuntu-latest
-
+    name: Check and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.x"
-
-      - name: Setup poetry
-        uses: abatilo/actions-poetry@v3
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
-          python-version: "3.x"
-
-      - name: Build release distributions
-        run: poetry build
-
-      - name: Upload distributions
-        uses: actions/upload-artifact@v4
+          version: "0.13.1"
+          enable-cache: false
+      - run: uv sync --locked
+      - name: The release tag is the project version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: test "$TAG" = "$(uv version --short)"
+      # verify builds the distributions into dev/reports/dist and installs the wheel in a
+      # clean environment: the files uploaded are the files checked.
+      - run: uv run --locked python dev/scripts/check.py verify
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-dists
-          path: dist/
+          path: dev/reports/dist/
+          if-no-files-found: error
 
   pypi-publish:
-    runs-on: ubuntu-latest
-    needs:
-      - release-build
+    name: Publish to PyPI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: [release-build]
     permissions:
-      # IMPORTANT: this permission is mandatory for trusted publishing
-      id-token: write
-
-    # Dedicated environments with protections for publishing are strongly recommended.
-    # For more information, see: https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment#deployment-protection-rules
+      id-token: write # PyPI exchanges this token for a short-lived upload token.
     environment:
       name: pypi
       url: https://pypi.org/project/cte2dbt
-
     steps:
-      - name: Retrieve release distributions
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-dists
           path: dist/
-
-      - name: Publish release distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist/

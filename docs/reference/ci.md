@@ -17,6 +17,20 @@ full commit hash.
 On Python 3.15 DuckDB has no wheel yet, so the execution tests skip there; `checks` runs
 them on the Python of `.python-version` and fails on any skipped test.
 
+## Publishing
+
+`.github/workflows/python-publish.yml` runs when a GitHub release is published:
+
+1. **Check and build** fails unless the release tag equals the project version given by
+   `uv version --short`, such as `2.0.0` without a `v`. It runs `check.py verify`, which
+   builds the distributions into `dev/reports/dist`, and keeps them as an artefact.
+2. **Publish to PyPI** uploads those same files through PyPI's Trusted Publishing, with
+   attestations of their origin. It alone receives an `id-token: write` permission, and
+   it runs in the `pypi` environment, where GitHub can require an approval.
+
+PyPI trusts this file name and the `pypi` environment: renaming either stops publishing
+until the Trusted Publisher on PyPI is updated. One release is published at a time.
+
 ## Pinned tools
 
 `dev/resources/ci/compose.yaml` lists actionlint and gitleaks as images pinned by digest.
