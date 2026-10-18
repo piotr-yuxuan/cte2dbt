@@ -186,8 +186,12 @@ def read_script(text: str, *, dialect: str) -> Script:
             permission = isinstance(statement, (exp.Grant, exp.Revoke)) or (
                 isinstance(statement, exp.Command) and statement.name.upper() in _PERMISSIONS
             )
-            # The tokens drop every comment, even in text sqlglot kept raw, but keep strings.
-            words = " ".join(token.text for token in target.tokenize(sql))
+            # Printed without the comments sqlglot parsed, whose printing varies by version;
+            # the tokens then drop the comments in any text sqlglot kept raw, but keep strings.
+            words = " ".join(
+                token.text
+                for token in target.tokenize(statement.sql(dialect=target, comments=False))
+            )
             if _CREATE_VIEW.search(words) and not permission:
                 msg = f"this statement defines a view that cannot be read as one: {sql[:80]}"
                 raise ParseError(msg)

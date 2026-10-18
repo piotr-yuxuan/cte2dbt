@@ -205,6 +205,11 @@ def test_a_guarded_drop_is_skipped() -> None:
         ),
         pytest.param("CREATE LIVE VIEW lv AS SELECT 1 AS a", "clickhouse", id="a live view"),
         pytest.param(
+            "CREATE JSON RELATIONAL DUALITY VIEW dv AS SELECT d.id FROM dept d",
+            "oracle",
+            id="an Oracle duality view",
+        ),
+        pytest.param(
             "CREATE WINDOW VIEW wv AS"
             " SELECT count(id) FROM t GROUP BY tumble(ts, INTERVAL '10' SECOND)",
             "clickhouse",
@@ -271,6 +276,11 @@ def test_each_batch_is_parsed_alone(monkeypatch: pytest.MonkeyPatch) -> None:
             " -- CREATE VIEW dbo.x\n SELECT 1 END",
             "tsql",
             id="a comment inside a trigger kept as text",
+        ),
+        pytest.param(
+            "CREATE VIEW dbo.v AS SELECT 1 AS a\nGO\n--/*\nGRANT SELECT ON dbo.v TO app\n--*/\n",
+            "tsql",
+            id="a block comment opened inside a line comment",
         ),
         pytest.param(
             "CREATE VIEW v AS SELECT 1 AS a; REVOKE CREATE VIEW ON SCHEMA db.s FROM ROLE r",
