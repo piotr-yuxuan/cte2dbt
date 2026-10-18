@@ -25,6 +25,9 @@ classifiers = [
 ]
 dependencies = ["sqlglot>=30.0,<31"]
 
+[project.scripts]
+cte2dbt = "cte2dbt.cli:main"
+
 [project.urls]
 Repository = "https://github.com/piotr-yuxuan/cte2dbt"
 
@@ -36,6 +39,7 @@ build-backend = "uv_build"
 test = ["pytest>=9.1.1,<10"]
 dev = [
     { include-group = "test" },
+    "import-linter>=2.15,<3",
     "mypy>=2.4.0,<3",
     "pip-audit>=2.10.1,<3",
     "pytest-cov>=7.1.0,<8",
@@ -60,6 +64,8 @@ ignore = [
 # Asserts are the test idiom; expectations are literal; test functions need no docstring; the
 # test modules sit in a rootdir without __init__.py.
 "tests/**" = ["S101", "PLR2004", "D1", "INP001"]
+# Standard output and standard error are the interface of the command line.
+"src/cte2dbt/cli.py" = ["T201"]
 # Standalone scripts, not a package, that print their progress and run fixed tool commands;
 # the XML they parse is written by the same run's pytest and coverage.
 "dev/scripts/**" = ["INP001", "T201", "S603", "S607", "S314"]
@@ -92,3 +98,11 @@ precision = 2
 
 [tool.coverage.xml]
 output = "dev/reports/coverage.xml"
+
+[tool.importlinter]
+root_package = "cte2dbt"
+
+[[tool.importlinter.contracts]]
+name = "The command line sits above the pure conversion core"
+type = "layers"
+layers = ["cte2dbt.cli", "cte2dbt.core"]

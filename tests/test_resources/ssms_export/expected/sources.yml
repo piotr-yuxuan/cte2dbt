@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: "dbo"
+    schema: "dbo"
+    tables:
+      - name: "Customers"
+      - name: "Orders"

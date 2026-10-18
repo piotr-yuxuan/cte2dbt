@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: "main"
+    schema: "main"
+    tables:
+      - name: "employees"
+      - name: "order_items"
+      - name: "orders"
+      - name: "sales"

@@ -38,6 +38,7 @@ def fast() -> None:
     run("ruff", "format", "--check", "src", "tests", "dev/scripts")
     run("ruff", "check", "src", "tests", "dev/scripts")
     run("mypy")
+    run("lint-imports")
     report = REPORTS / "tests.xml"
     coverage = REPORTS / "coverage.xml"
     REPORTS.mkdir(parents=True, exist_ok=True)
@@ -110,6 +111,7 @@ def package() -> None:
         run("uv", "venv", "--quiet", directory)
         run("uv", "pip", "install", "--quiet", "--python", python, str(wheels[0]))
         run(python, "-I", "-c", "import cte2dbt")
+        run(str(Path(directory) / "bin/cte2dbt"), "--help")
 
 
 def main() -> int:

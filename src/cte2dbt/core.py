@@ -60,6 +60,12 @@ class Source:
     schema: str
     table: str
 
+    def __post_init__(self) -> None:
+        """Refuse a table without a schema: dbt sources need one."""
+        if not self.schema:
+            msg = f"{self.table} has no schema; give a default schema"
+            raise ValueError(msg)
+
     @property
     def source_name(self) -> str:
         """Return the dbt source name: the schema, after its database when there is one."""

@@ -1,3 +1,4 @@
+CREATE VIEW no_cross_cte_use AS
 WITH
   cte1 AS (
     SELECT id, name, amount
