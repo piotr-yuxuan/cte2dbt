@@ -36,5 +36,34 @@ build-backend = "uv_build"
 test = ["pytest>=9.1.1,<10"]
 dev = [{ include-group = "test" }]
 
+[tool.ruff]
+line-length = 100
+extend-exclude = [".worktrees"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812", # Conflicts with the formatter.
+    "CPY001", # There is no licence-header policy: LICENSE covers the repository.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Asserts are the test idiom; expectations are literal; test functions need no docstring; the
+# test modules sit in a rootdir without __init__.py.
+"tests/**" = ["S101", "PLR2004", "D1", "INP001"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+files = ["src", "tests"]
+
 [tool.pytest.ini_options]
+addopts = ["--import-mode=importlib", "--strict-markers", "--strict-config", "-ra"]
+filterwarnings = ["error"]
 testpaths = ["tests"]
