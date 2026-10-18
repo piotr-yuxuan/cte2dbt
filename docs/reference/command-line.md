@@ -52,7 +52,8 @@ Standard output receives one line when the files are written:
 cte2dbt: wrote 4 models and sources.yml to models/legacy
 ```
 
-Standard error receives each warning and error on one line:
+Standard error receives each warning and error on a line of its own, unless the statement
+it quotes holds a line break inside a string:
 
 ```text
 cte2dbt: warning: FILE: skipped statement: STATEMENT

@@ -69,11 +69,12 @@ UV_PYTHON=3.11 uv run --no-sync python -m pytest
 3. Have the change reviewed independently, with its base commit and intent.
 4. Resolve blocking findings and consequential questions. A correction needs a new
    review; remarks alone do not.
-5. With the owner's approval, merge and record the decision in the merge message:
+5. With the owner's approval, merge in the primary checkout, which stays on `main`, and
+   record the decision in the merge message. The author drafts it in the worktree as
+   `dev/reports/merge-decision.txt`, which git ignores:
 
 ```sh
-git switch main
-git merge --no-ff NNN-slug -F dev/reports/merge-decision.txt
+git merge --no-ff NNN-slug -F .worktrees/NNN-slug/dev/reports/merge-decision.txt
 ```
 
 The decision states the scope, the reviewed base and head commits, the evidence and its

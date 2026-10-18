@@ -16,8 +16,8 @@ from cte2dbt import Model, Project, Script, Source, View, convert, dbt_files, re
 read_script(text: str, *, dialect: str) -> Script
 ```
 
-Return the `CREATE VIEW` and `CREATE OR ALTER VIEW` statements of a script, in script
-order, and a warning for each statement skipped.
+Return the views that the `CREATE VIEW` statements of a script define, in script order,
+and a warning for each statement skipped.
 [The conversion rules](conversion-rules.md#statements) list how each statement is treated.
 
 Raises `ValueError` for an unknown dialect or malformed dialect settings, and

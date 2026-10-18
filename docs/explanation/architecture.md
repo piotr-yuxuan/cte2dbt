@@ -15,8 +15,9 @@ An [Import Linter](https://import-linter.readthedocs.io/) contract in `pyproject
 keeps `cte2dbt.core` from importing `cte2dbt.cli`. The core reads no file, prints and logs
 nothing, and returns frozen results, so every rule is tested by calling a function. The
 library configures no logging, so applications keep control of their own. The command
-line is such an application: it keeps sqlglot's notices off standard error, as each of
-them is also reported as a `cte2dbt:` warning or error.
+line is such an application: it keeps sqlglot's notices off standard error. Each
+statement that sqlglot can only keep as text is reported as a skipped statement or an
+error; its other notices, such as an invalid JSON path, are dropped.
 
 ## Data flow
 

@@ -9,12 +9,12 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
 
 | Statement | Treatment |
 | --- | --- |
-| `CREATE VIEW`, `CREATE OR ALTER VIEW` | Read as a view, with its column list. View options such as `SCHEMABINDING` are not carried over. |
+| `CREATE VIEW`, `CREATE OR ALTER VIEW`, and any other `CREATE ... VIEW` that sqlglot reads as a view of a query, such as `CREATE OR REPLACE VIEW` | Read as a view, with its column list. Modifiers such as `TEMPORARY`, `SECURE` or `FORCE`, and view options such as `SCHEMABINDING`, are not carried over. |
 | A line holding only `GO`, with an optional count, semicolon or `--` comment | Ends a batch, in T-SQL and the dialects derived from it, as sqlcmd does. Each batch is parsed on its own, so a guard such as `IF ... DROP VIEW` ends with its batch. Inside a string or block comment the line ends the batch too, which then fails to parse. |
-| `USE`; `SET` options switched `ON`; an empty statement | Ignored. |
+| `USE`; `SET` options switched `ON`, one option per `SET`; an empty statement | Ignored. sqlglot cannot parse a list such as `SET ANSI_NULLS, ANSI_PADDING ON`, which is therefore an error: write one `SET` per option, as SSMS does. |
 | `SET QUOTED_IDENTIFIER OFF` | Error: double-quoted text after it would be read as names. |
 | Another `SET` statement | Skipped with a warning. When it switches off an option that dbt's connections switch on (`ANSI_NULLS`, `ANSI_PADDING`, `ANSI_WARNINGS`, `ARITHABORT`, `CONCAT_NULL_YIELDS_NULL`), the warning adds that the views after it are built with the option `ON`. |
-| A statement that defines a view but cannot be read as one: a view `WITH CHECK OPTION`, a materialised view, an Oracle `EDITIONABLE` view, a view created by dynamic SQL in `EXEC`, a view whose body is not a query | Error. The statement is found by its text, `CREATE`, then any of the modifiers `OR ALTER`, `OR REPLACE`, `OR REFRESH`, `FORCE`, `NOFORCE`, `EDITIONABLE`, `NONEDITIONABLE`, `EDITIONING`, `MATERIALIZED`, `SECURE`, `RECURSIVE`, `TEMP`, `TEMPORARY`, `LOCAL`, `GLOBAL`, `LIVE`, `WINDOW` and `JSON RELATIONAL DUALITY`, then `VIEW`. Comments are not searched, strings are, and so is all the text after `PRINT`, which sqlglot reads as one string. A grant or revoke of the `CREATE VIEW` permission is not a view. MySQL's `ALGORITHM` and `DEFINER` clauses are not modifiers, so such a view that sqlglot cannot read is only skipped. |
+| A statement that defines a view but cannot be read as one: a view `WITH CHECK OPTION`, a materialised view, an Oracle `EDITIONABLE` view, a view created by dynamic SQL in `EXEC`, a view whose body is not a query | Error. The statement is found by its text, `CREATE`, then any of the modifiers `OR ALTER`, `OR REPLACE`, `OR REFRESH`, `FORCE`, `NOFORCE`, `EDITIONABLE`, `NONEDITIONABLE`, `EDITIONING`, `MATERIALIZED`, `SECURE`, `RECURSIVE`, `TEMP`, `TEMPORARY`, `LOCAL`, `GLOBAL`, `LIVE`, `WINDOW` and `JSON RELATIONAL DUALITY`, then `VIEW`. Comments are not searched, but strings and quoted names are, and so is all the text, comments included, of a statement that sqlglot keeps as one string after its keyword, such as `PRINT`, `SHOW` or `UPDATE STATISTICS` in T-SQL and `EXECUTE` in Postgres or Snowflake. A grant or revoke of the `CREATE VIEW` permission is not a view. MySQL's `ALGORITHM` and `DEFINER` clauses are not modifiers, so such a view that sqlglot cannot read is only skipped. |
 | SQL that sqlglot cannot parse | Error. |
 | Anything else: grants, `EXEC`, `ALTER VIEW`, a guarded `DROP VIEW`, procedures, a query on its own | Skipped, with the warning `skipped statement: STATEMENT`. |
 
@@ -35,8 +35,9 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
    model, below. Any other expression that names itself reads the table of that name.
 4. **An earlier common table expression** of the same view, by a one-part name, becomes
    `{{ ref("VIEW__CTE") }}`. A common table expression does not see later ones, except in
-   SQLite, and in Postgres under `WITH RECURSIVE`, where every expression of the same
-   `WITH` is visible, at the top level as in a nested `WITH`.
+   SQLite, and under `WITH RECURSIVE` in Postgres and the dialects that sqlglot derives
+   from it, such as Redshift, where every expression of the same `WITH` is visible, at the
+   top level as in a nested `WITH`.
 5. **A converted view**, matched by database, schema and name, becomes `{{ ref("VIEW") }}`.
 6. **Anything else** becomes `{{ source("SOURCE", "TABLE") }}`.
 

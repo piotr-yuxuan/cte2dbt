@@ -189,8 +189,8 @@ def read_script(text: str, *, dialect: str) -> Script:
             permission = isinstance(statement, (exp.Grant, exp.Revoke)) or (
                 isinstance(statement, exp.Command) and statement.name.upper() in _PERMISSIONS
             )
-            # Printed without the comments sqlglot parsed, whose printing varies by version;
-            # the tokens then drop the comments in any text sqlglot kept raw, but keep strings.
+            # Printed without the comments that sqlglot parsed. The tokens keep strings and
+            # quoted names, and a statement that sqlglot keeps as text keeps its comments.
             words = " ".join(
                 token.text
                 for token in target.tokenize(statement.sql(dialect=target, comments=False))
