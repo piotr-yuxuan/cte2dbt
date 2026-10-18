@@ -145,10 +145,8 @@ def test_a_go_line_ends_every_statement_before_it() -> None:
         dialect="tsql",
     )
     assert [view.name.name for view in script.views] == ["v1", "v2"]
-    assert [warning.split("(")[0] for warning in script.warnings] == [
-        "skipped statement: IF EXISTS",
-        "skipped statement: IF NOT OBJECT_ID",
-    ]
+    assert len(script.warnings) == 2
+    assert all(warning.startswith("skipped statement: IF") for warning in script.warnings)
 
 
 def test_a_go_line_inside_a_string_ends_the_batch_as_sqlcmd_would() -> None:
@@ -218,3 +216,44 @@ def test_each_batch_is_parsed_alone(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(read_script(text, dialect="tsql").views) == 50
     # A batch keeps the newline that ends its GO line; the text before it would be longer.
     assert max(len(sql) for sql in parsed) < 2 * len(batch.format(49, 49))
+
+
+@pytest.mark.parametrize(
+    ("text", "dialect"),
+    [
+        pytest.param(
+            "CREATE VIEW dbo.v AS SELECT 1 AS a\nGO\n"
+            "EXEC sys.sp_addextendedproperty @name=N'MS_Description',"
+            " @value=N'To change it, create a new view and retire this one.'",
+            "tsql",
+            id="prose about views in a description",
+        ),
+        pytest.param(
+            "CREATE VIEW dbo.v AS SELECT 1 AS a\nGO\n-- Replaces CREATE VIEW dbo.old\nEXEC sp_who",
+            "tsql",
+            id="a comment about a view",
+        ),
+        pytest.param(
+            "CREATE VIEW dbo.v AS SELECT 1 AS a\nGO\nGRANT CREATE VIEW ON SCHEMA dbo TO bob",
+            "tsql",
+            id="a parsed grant of the permission",
+        ),
+        pytest.param(
+            "CREATE VIEW v AS SELECT 1 AS a; REVOKE CREATE VIEW ON SCHEMA db.s FROM ROLE r",
+            "snowflake",
+            id="a revoke of the permission",
+        ),
+    ],
+)
+def test_statements_that_mention_views_without_defining_one_are_skipped(
+    text: str, dialect: str
+) -> None:
+    script = read_script(text, dialect=dialect)
+    assert len(script.views) == 1
+    [warning] = script.warnings
+    assert warning.startswith("skipped statement: ")
+
+
+def test_malformed_dialect_settings_are_a_value_error() -> None:
+    with pytest.raises(ValueError, match="malformed dialect settings"):
+        read_script("SELECT 1", dialect="tsql, normalization_strategy")

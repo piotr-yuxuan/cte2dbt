@@ -480,25 +480,6 @@ CASES += [
         id="a nested CTE does not see itself without RECURSIVE",
     ),
     pytest.param(
-        ("postgres", "public"),
-        [
-            (
-                "v",
-                (
-                    "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)"
-                    " SEARCH DEPTH FIRST BY n SET ord SELECT n, ord FROM r"
-                ),
-            )
-        ],
-        {
-            "v__r": "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)"
-            " SEARCH DEPTH FIRST BY n SET ord SELECT * FROM r",
-            "v": 'SELECT n, ord FROM {{ ref("v__r") }} AS r',
-        },
-        [],
-        id="a recursive CTE keeps its SEARCH clause",
-    ),
-    pytest.param(
         TSQL,
         [("dbo.v", "SELECT t.id, f.x FROM dbo.t AS t CROSS APPLY dbo.fn_tvf(t.id) AS f")],
         {
@@ -631,48 +612,6 @@ CASES += [
         id="a nested CTE reads itself where recursion needs no keyword",
     ),
     pytest.param(
-        ("postgres", "public"),
-        [
-            (
-                "v",
-                (
-                    "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)"
-                    " CYCLE n SET is_cycle USING path SELECT n FROM r"
-                ),
-            )
-        ],
-        {
-            "v__r": "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)"
-            " CYCLE n SET is_cycle USING path SELECT * FROM r",
-            "v": 'SELECT n FROM {{ ref("v__r") }} AS r',
-        },
-        [],
-        id="a recursive CTE keeps its CYCLE clause",
-    ),
-    pytest.param(
-        ("postgres", "public"),
-        [
-            (
-                "v",
-                (
-                    "WITH RECURSIVE a(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM a WHERE n < 3),"
-                    " b(m) AS (SELECT n FROM a UNION ALL SELECT m + 1 FROM b WHERE m < 5)"
-                    " SEARCH DEPTH FIRST BY m SET ord SELECT m FROM b"
-                ),
-            )
-        ],
-        {
-            "v__a": "WITH RECURSIVE a(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM a WHERE n < 3)"
-            " SELECT * FROM a",
-            "v__b": 'WITH RECURSIVE b(m) AS (SELECT n FROM {{ ref("v__a") }} AS a'
-            " UNION ALL SELECT m + 1 FROM b WHERE m < 5) SEARCH DEPTH FIRST BY m SET ord"
-            " SELECT * FROM b",
-            "v": 'SELECT m FROM {{ ref("v__b") }} AS b',
-        },
-        [],
-        id="SEARCH stays with the last CTE",
-    ),
-    pytest.param(
         TSQL,
         [
             (
@@ -691,6 +630,126 @@ CASES += [
         id="a function under APPLY is reported as written",
     ),
 ]
+
+
+CASES += [
+    pytest.param(
+        ("postgres", "public"),
+        [("v", "WITH RECURSIVE a AS (SELECT x FROM b), b AS (SELECT 7 AS x) SELECT x FROM a")],
+        {
+            "v__b": "SELECT 7 AS x",
+            "v__a": 'SELECT x FROM {{ ref("v__b") }} AS b',
+            "v": 'SELECT x FROM {{ ref("v__a") }} AS a',
+        },
+        [],
+        id="Postgres under RECURSIVE lets a CTE read a later one",
+    ),
+    pytest.param(
+        DUCKDB,
+        [("main.v", "WITH RECURSIVE a AS (SELECT x FROM b), b AS (SELECT 7 AS x) SELECT x FROM a")],
+        {
+            "v__a": 'SELECT x FROM {{ source("main", "b") }} AS b',
+            "v__b": "SELECT 7 AS x",
+            "v": 'SELECT x FROM {{ ref("v__a") }} AS a',
+        },
+        [],
+        id="DuckDB under RECURSIVE does not",
+    ),
+    pytest.param(
+        DUCKDB,
+        [
+            (
+                "main.v",
+                (
+                    "WITH b AS (SELECT 5 AS id)"
+                    " SELECT * FROM (WITH RECURSIVE b AS (SELECT id + 1 AS id FROM b)"
+                    " SELECT * FROM b) AS q"
+                ),
+            )
+        ],
+        {
+            "v__b": "SELECT 5 AS id",
+            "v": "SELECT * FROM (WITH RECURSIVE b AS"
+            ' (SELECT id + 1 AS id FROM {{ ref("v__b") }} AS b) SELECT * FROM b) AS q',
+        },
+        [],
+        id="only a union reads itself under RECURSIVE",
+    ),
+    pytest.param(
+        TSQL,
+        [("dbo.v", "SELECT b.dbo.t1.id FROM a.dbo.t1")],
+        {"v": 'SELECT b.dbo.t1.id FROM {{ source("a__dbo", "t1") }} AS t1'},
+        [],
+        id="a column naming another database keeps its qualifier",
+    ),
+    pytest.param(
+        TSQL,
+        [("dbo.v", "SELECT dbo.t1.id FROM dbo.t1 UNION SELECT id FROM dbo.t2 ORDER BY dbo.t1.id")],
+        {
+            "v": 'SELECT t1.id FROM {{ source("dbo", "t1") }} AS t1'
+            ' UNION SELECT id FROM {{ source("dbo", "t2") }} AS t2 ORDER BY dbo.t1.id'
+        },
+        [],
+        id="a column outside any SELECT is left as written",
+    ),
+    pytest.param(
+        TSQL,
+        [
+            (
+                "dbo.v",
+                "SELECT t.id FROM dbo.t AS t CROSS APPLY (SELECT MAX(id) AS m FROM dbo.u) AS x",
+            )
+        ],
+        {
+            "v": 'SELECT t.id FROM {{ source("dbo", "t") }} AS t'
+            ' CROSS APPLY (SELECT MAX(id) AS m FROM {{ source("dbo", "u") }} AS u) AS x'
+        },
+        [],
+        id="a subquery under APPLY is not reported",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SEARCH DEPTH FIRST BY n SET ord", id="SEARCH"),
+        pytest.param("CYCLE n SET is_cycle USING path", id="CYCLE"),
+        pytest.param("SEARCH DEPTH FIRST BY n SET ord CYCLE n SET is_cycle USING path", id="both"),
+    ],
+)
+def test_a_recursive_cte_with_search_or_cycle_is_refused(sql: str) -> None:
+    query = f"WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) {sql} SELECT n FROM r"
+    with pytest.raises(ValueError, match="SEARCH or CYCLE"):
+        convert(views("postgres", ("v", query)), dialect="postgres", default_schema="public")
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param('SELECT * FROM RAW.t1 JOIN "RAW".t2 ON TRUE', id="two schemas spelt alike"),
+        pytest.param('SELECT * FROM Foo JOIN "Foo" ON TRUE', id="two tables spelt alike"),
+    ],
+)
+def test_names_that_only_quoting_tells_apart_are_refused(sql: str) -> None:
+    with pytest.raises(ValueError, match="would name two different relations"):
+        convert(views("postgres", ("v", sql)), dialect="postgres", default_schema="public")
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SELECT a.dbo.t1.id FROM a.dbo.t1 JOIN b.dbo.t1 ON 1 = 1", id="two exposures"),
+        pytest.param(
+            "SELECT dbo.t1.id FROM dbo.t1 CROSS JOIN (SELECT 1 AS id) AS t1x"
+            " WHERE EXISTS (SELECT 1 FROM (SELECT 2 AS id) AS t1 WHERE dbo.t1.id = 1)",
+            id="an exposure by a user alias",
+        ),
+    ],
+)
+def test_a_column_that_would_bind_elsewhere_is_refused(sql: str) -> None:
+    with pytest.raises(ValueError, match="would bind to another table"):
+        convert(views("tsql", ("dbo.v", sql)), dialect="tsql", default_schema="dbo")
 
 
 @pytest.mark.parametrize("dialect", ["tsql", "oracle", "snowflake", "sqlite"])
@@ -850,15 +909,6 @@ def test_results_are_frozen() -> None:
         for item in dataclasses.fields(result):
             with pytest.raises(dataclasses.FrozenInstanceError):
                 setattr(result, item.name, None)
-
-
-def test_quoted_and_unquoted_names_of_two_tables_are_not_merged() -> None:
-    with pytest.raises(ValueError, match="two different tables would be the one source Foo"):
-        convert(
-            views("postgres", ("v", 'SELECT * FROM Foo JOIN "Foo" ON TRUE')),
-            dialect="postgres",
-            default_schema="public",
-        )
 
 
 def test_sql_that_the_dialect_cannot_print_is_an_error() -> None:

@@ -4,6 +4,7 @@ import graphlib
 import itertools
 import json
 import re
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
@@ -18,10 +19,14 @@ _GO = re.compile(
 )
 """A line that holds only the batch separator GO, with an optional count and comment."""
 
-_CREATE_VIEW = re.compile(r"\bCREATE\s+(?:\w+\s+)*?VIEW\b", re.IGNORECASE)
-"""Text that defines a view, with any modifiers between CREATE and VIEW."""
+_CREATE_VIEW = re.compile(
+    r"\bCREATE\s+(?:(?:OR\s+(?:ALTER|REPLACE)|NO\s*FORCE|FORCE|(?:NON)?EDITIONABLE|EDITIONING"
+    r"|MATERIALIZED|SECURE|RECURSIVE|TEMP(?:ORARY)?|LOCAL|GLOBAL)\s+)*VIEW\b",
+    re.IGNORECASE,
+)
+"""Text that defines a view, with the modifiers that dialects allow between CREATE and VIEW."""
 
-_PERMISSIONS = frozenset({"GRANT", "DENY", "REVOKE"})
+_PERMISSIONS = frozenset({"GRANT", "REVOKE"})
 """Statements that may name the CREATE VIEW permission without defining a view."""
 
 _ANSI_DEFAULTS_OFF = frozenset(
@@ -110,7 +115,7 @@ class _Conversion:
     default_schema: str
     views: dict[tuple[str, ...], str] = field(default_factory=dict)
     spellings: dict[tuple[str, ...], str] = field(default_factory=dict)
-    owners: dict[Source, tuple[str, ...]] = field(default_factory=dict)
+    keys: dict[tuple[str, ...], tuple[str, ...]] = field(default_factory=dict)
     models: dict[str, Model] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -121,6 +126,7 @@ class _Links:
     refs: set[str] = field(default_factory=set)
     sources: set[Source] = field(default_factory=set)
     recursive: bool = False
+    # Keyed by id(): sqlglot nodes compare structurally, so equal-looking aliases would merge.
     aliased: dict[int, tuple[str, ...]] = field(default_factory=dict)
 
 
@@ -130,12 +136,12 @@ def read_script(text: str, *, dialect: str) -> Script:
     A T-SQL script is split into batches at each line holding only GO, as sqlcmd does,
     and error line numbers stay those of the text. USE statements and SET options switched
     ON are ignored; any other statement is skipped with a warning. Raise ValueError for an
-    unknown dialect; sqlglot.errors.ParseError or TokenError for SQL that sqlglot cannot
-    read; and ParseError for SET QUOTED_IDENTIFIER OFF and for a statement that defines a
-    view but cannot be read as one, such as a view WITH CHECK OPTION or a view created by
-    dynamic SQL.
+    unknown dialect or malformed settings; sqlglot.errors.ParseError or TokenError for SQL
+    that sqlglot cannot read; and ParseError for SET QUOTED_IDENTIFIER OFF and for a
+    statement that defines a view but cannot be read as one, such as a view WITH CHECK
+    OPTION or a view created by dynamic SQL.
     """
-    target = Dialect.get_or_raise(dialect)
+    target = _dialect(dialect)
     views: list[View] = []
     warnings: list[str] = []
     lines = 0
@@ -176,7 +182,7 @@ def read_script(text: str, *, dialect: str) -> Script:
                 )
                 views.append(View(schema.this, statement.expression, columns))
                 continue
-            permission = isinstance(statement, exp.Grant) or (
+            permission = isinstance(statement, (exp.Grant, exp.Revoke)) or (
                 isinstance(statement, exp.Command) and statement.name.upper() in _PERMISSIONS
             )
             if (
@@ -205,17 +211,17 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
     default_schema when it is named without a schema. Names compare as the dialect
     compares identifiers. The input views are not modified.
 
-    Raise ValueError for an unknown dialect, when two models would share a name ignoring
-    case, when views refer to one another in a cycle, when two different tables would be
-    one source, when two sources would share a dbt source name, when dropping a schema from
-    a column would bind it to another table, or when the SQL contains the reserved text
+    Raise ValueError for an unknown dialect or malformed settings, when two models would
+    share a name ignoring case, when views refer to one another in a cycle, when a
+    recursive CTE has a SEARCH or CYCLE clause, when two different relations would be spelt
+    alike, when two sources would share a dbt source name, when dropping a schema from a
+    column would bind it to another table, or when the SQL contains the reserved text
     __cte2dbt_.
     """
-    conversion = _Conversion(Dialect.get_or_raise(dialect), default_schema)
+    conversion = _Conversion(_dialect(dialect), default_schema)
     listed = tuple(views)
     for view in listed:
         conversion.views[_relation(view.name, conversion)[0]] = _model_name(view.name.name)
-    implicit = isinstance(conversion.dialect, _RECURSIVE_WITHOUT_KEYWORD)
     for view in listed:
         prefix = _model_name(view.name.name)
         if prefix != view.name.name:
@@ -226,6 +232,11 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
         if isinstance(clause, exp.With):
             clause.pop()
         explicit = isinstance(clause, exp.With) and clause.recursive
+        if isinstance(clause, exp.With) and (clause.args.get("search") or clause.args.get("cycle")):
+            # A model selecting the whole CTE would expose the record-typed columns of these
+            # clauses, which Postgres cannot store.
+            msg = f"{prefix}: a recursive CTE with SEARCH or CYCLE cannot be split into models"
+            raise ValueError(msg)
         cte_models = {
             _key(cte.args["alias"].this, conversion.dialect): f"{prefix}__{_model_name(cte.alias)}"
             for cte in ctes
@@ -235,26 +246,15 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
             alias: exp.TableAlias = cte.args["alias"]
             own = _key(alias.this, conversion.dialect)
             name = cte_models[own]
-            links = _rewrite(
-                cte.this, visible, own if implicit or explicit else None, conversion, name
-            )
+            recursive = _recursive(conversion.dialect, cte, explicit=explicit)
+            links = _rewrite(cte.this, visible, own if recursive else None, conversion, name)
             _requalify(cte.this, links, conversion, name)
             body = _wrap(cte.this, alias) if alias.columns and not links.recursive else cte.this
             if links.recursive:
-                # Keep the CTE node, with any MATERIALIZED or USING KEY, and the SEARCH or
-                # CYCLE clause that sqlglot stores as "search" on the WITH, after its last CTE.
-                # "with_" is the key of every supported sqlglot; the compatibility tests
-                # guard both keys.
-                last = isinstance(clause, exp.With) and cte is ctes[-1]
+                # Keep the CTE node, with any MATERIALIZED or USING KEY. "with_" is the key of
+                # every supported sqlglot; the compatibility tests guard it.
                 body = exp.select("*").from_(exp.Table(this=alias.this.copy()))
-                body.set(
-                    "with_",
-                    exp.With(
-                        expressions=[cte],
-                        recursive=explicit,
-                        search=clause.args.get("search") if last and clause else None,
-                    ),
-                )
+                body.set("with_", exp.With(expressions=[cte], recursive=explicit))
             _add(conversion, name, body, links)
             visible[own] = name
         links = _rewrite(query, visible, None, conversion, prefix)
@@ -270,12 +270,11 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
         msg = "views refer to one another in a cycle: " + " -> ".join(error.args[1])
         raise ValueError(msg) from error
     sources = sorted({source for model in models.values() for source in model.sources})
-    names: dict[str, Source] = {}
-    for source in sources:
-        same = names.setdefault(source.source_name, source)
-        if (same.database, same.schema) != (source.database, source.schema):
-            msg = f"two dbt sources would be named {source.source_name}"
-            raise ValueError(msg)
+    schemas = {(source.database, source.schema): source.source_name for source in sources}
+    clashes = sorted(name for name, count in Counter(schemas.values()).items() if count > 1)
+    if clashes:
+        msg = f"two dbt sources would be named {clashes[0]}"
+        raise ValueError(msg)
     return Project(
         tuple(models[name] for name in order), tuple(sources), tuple(conversion.warnings)
     )
@@ -311,7 +310,6 @@ def _rewrite(
 ) -> _Links:
     # Classify each table once, then point it at a placeholder for its ref() or source().
     dialect = conversion.dialect
-    implicit = isinstance(dialect, _RECURSIVE_WITHOUT_KEYWORD)
     links = _Links()
     conversion.warnings.extend(
         f"{model}: {lateral.sql(dialect=dialect, normalize_functions=False)} kept as written"
@@ -340,11 +338,18 @@ def _rewrite(
             names = [_key(cte.args["alias"].this, dialect) for cte in ctes]
             clause = ctes[0].parent if ctes else None
             keyword = isinstance(clause, exp.With) and clause.recursive
-            end = next(
-                (i + (implicit or keyword) for i, cte in enumerate(ctes) if cte is through),
-                len(names),
+            end = (
+                len(names)
+                if _forward(dialect, explicit=keyword)
+                else next(
+                    (
+                        i + 1 if _recursive(dialect, cte, explicit=keyword) else i
+                        for i, cte in enumerate(ctes)
+                        if cte is through
+                    ),
+                    len(names),
+                )
             )
-            end = len(names) if _forward(dialect, explicit=keyword) else end
             local = key[-1] in names[:end]
             through = scope if isinstance(scope, exp.CTE) else through
             scope = scope.parent
@@ -356,15 +361,18 @@ def _rewrite(
             links.refs.add(target)
             links.targets.append(f"{{{{ ref({_literal(target)}) }}}}")
         else:
-            source = Source(
-                *(
-                    conversion.spellings.setdefault(key[: i + 1], part)
-                    for i, part in enumerate(written)
-                )
+            spelt = tuple(
+                conversion.spellings.setdefault(key[: i + 1], part)
+                for i, part in enumerate(written)
             )
-            if conversion.owners.setdefault(source, key) != key:
-                msg = f"{model}: two different tables would be the one source {source.table}"
+            # sources.yml must tell apart the databases, schemas and tables the dialect does.
+            if any(
+                conversion.keys.setdefault(spelt[: i + 1], key[: i + 1]) != key[: i + 1]
+                for i in range(len(key))
+            ):
+                msg = f"{model}: {'.'.join(filter(None, spelt))} would name two different relations"
                 raise ValueError(msg)
+            source = Source(*spelt)
             links.sources.add(source)
             links.targets.append(
                 f"{{{{ source({_literal(source.source_name)}, {_literal(source.table)}) }}}}"
@@ -388,7 +396,8 @@ def _requalify(body: exp.Query, links: _Links, conversion: _Conversion, model: s
             scope = id(alias.find_ancestor(exp.Select))
             exposed_by.setdefault(scope, []).append((_key(alias.this, dialect), alias))
     for column in list(body.find_all(exp.Column)):
-        if not column.args.get("db"):
+        # A column outside any SELECT, as in the ORDER BY of a UNION, is left as written.
+        if not column.args.get("db") or column.find_ancestor(exp.Select) is None:
             continue
         key = _relation(column, conversion)[0]
         if not any(_same_table(key, table) for table in links.aliased.values()):
@@ -447,6 +456,22 @@ def _relation(
 def _same_table(column: tuple[str, ...], table: tuple[str, ...]) -> bool:
     # Same schema and name; a database written on one side only does not tell them apart.
     return column[1:] == table[1:] and (not column[0] or not table[0] or column[0] == table[0])
+
+
+def _dialect(name: str) -> Dialect:
+    # sqlglot raises AttributeError for some malformed settings, such as a key without value.
+    try:
+        return Dialect.get_or_raise(name)
+    except AttributeError as error:
+        msg = f"malformed dialect settings in {name!r}"
+        raise ValueError(msg) from error
+
+
+def _recursive(dialect: Dialect, cte: exp.CTE, *, explicit: bool) -> bool:
+    # Whether a CTE that names itself reads itself: only a UNION of an anchor and a recursive
+    # part can, under WITH RECURSIVE or in a dialect that needs no keyword.
+    recursion = explicit or isinstance(dialect, _RECURSIVE_WITHOUT_KEYWORD)
+    return recursion and isinstance(cte.this, exp.SetOperation)
 
 
 def _forward(dialect: Dialect, *, explicit: bool) -> bool:

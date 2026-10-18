@@ -95,6 +95,10 @@ allows such lists.
   an error. Convert one schema at a time; references across schemas then become sources.
 - A view read through a three-part name, `database.schema.view`, becomes a source rather
   than a ref.
+- A struct field read through a schema-qualified column, such as DuckDB's `raw.st.s.y`,
+  keeps its qualifier and no longer binds once its table is aliased; write `st.s.y`.
+- A recursive common table expression with `SEARCH` or `CYCLE` is refused rather than
+  split: its model would expose the record-typed columns of the clause.
 - Table-valued functions, linked servers and temporary tables are kept as written; they
   must be available where dbt builds the models. Pseudo-tables are not recognised:
   Oracle's `DUAL` and DuckDB's `FROM 'file.parquet'` become sources that do not exist.

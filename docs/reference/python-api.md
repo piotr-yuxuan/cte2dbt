@@ -20,7 +20,8 @@ Return the `CREATE VIEW` and `CREATE OR ALTER VIEW` statements of a script, in s
 order, and a warning for each statement skipped.
 [The conversion rules](conversion-rules.md#statements) list how each statement is treated.
 
-Raises `ValueError` for an unknown dialect, and `sqlglot.errors.SqlglotError` for SQL
+Raises `ValueError` for an unknown dialect or malformed dialect settings, and
+`sqlglot.errors.SqlglotError` for SQL
 that cannot be read: `ParseError` for SQL that sqlglot cannot parse, for
 `SET QUOTED_IDENTIFIER OFF`, and for a statement that defines a view but cannot be read as
 one; `TokenError` for text that does not even split into tokens, such as an unterminated
@@ -36,10 +37,11 @@ Convert views into dbt models, following [the conversion rules](conversion-rules
 `dialect` decides how names compare; `default_schema` is the schema of tables named
 without one.
 
-Raises `ValueError` for an unknown dialect; when two models would share a name, ignoring
-case; when views refer to one another in a cycle; when two different tables would be
-one source, such as `Foo` and `"Foo"` in Postgres; when two sources would share a dbt
-source name; when a table without a schema is read and `default_schema` is empty; when
+Raises `ValueError` for an unknown dialect or malformed dialect settings; when two models
+would share a name, ignoring case; when views refer to one another in a cycle; when a
+recursive common table expression has a `SEARCH` or `CYCLE` clause; when two different
+databases, schemas or tables would be spelt alike, such as `Foo` and `"Foo"` in Postgres;
+when two sources would share a dbt source name; when a table without a schema is read and `default_schema` is empty; when
 dropping a schema from a column would bind it to another table; and when the SQL
 contains the reserved text `__cte2dbt_`. Raises `sqlglot.errors.UnsupportedError` when
 sqlglot cannot print a construct in the dialect.
