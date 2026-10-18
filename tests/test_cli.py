@@ -1,6 +1,8 @@
 """The command line: golden directories, the output rule, encodings, errors and exit codes."""
 
 import re
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -121,6 +123,10 @@ def test_an_existing_output_is_a_usage_error_and_untouched(
     [
         pytest.param(["v.sql"], id="no output"),
         pytest.param(["v.sql", "-o", "out", "--dialect", "nosuch"], id="an unknown dialect"),
+        pytest.param(
+            ["v.sql", "-o", "out", "--dialect", "tsql, normalization_strategy"],
+            id="malformed dialect settings",
+        ),
     ],
 )
 def test_usage_errors_exit_with_status_2(arguments: list[str]) -> None:
@@ -174,3 +180,27 @@ def test_errors_exit_with_status_1_and_write_nothing(
     assert all(message in errors for message in messages)
     assert all(line.startswith("cte2dbt: error: ") for line in errors.splitlines())
     assert not out.exists()
+
+
+def test_standard_error_holds_only_the_messages_of_cte2dbt(tmp_path: Path) -> None:
+    # A child process, because pytest's own log capture would hide what sqlglot logs.
+    script = write(
+        tmp_path / "v.sql", b"CREATE VIEW dbo.v AS SELECT a FROM dbo.t\nGO\nGRANT SELECT TO x\n"
+    )
+    run = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from cte2dbt.cli import main; sys.exit(main(sys.argv[1:]))",
+            str(script),
+            "-o",
+            str(tmp_path / "out"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 0
+    assert run.stderr.splitlines() == [
+        f"cte2dbt: warning: {script}: skipped statement: GRANT SELECT TO x"
+    ]

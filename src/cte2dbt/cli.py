@@ -2,6 +2,7 @@
 
 import argparse
 import codecs
+import logging
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -44,12 +45,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="schema of the tables that a script names without one (default: %(default)s)",
     )
     args = parser.parse_args(argv)
+    # sqlglot logs each statement it falls back on; every such case is reported below.
+    logging.getLogger("sqlglot").setLevel(logging.ERROR)
     if args.output.exists() and not (args.output.is_dir() and not any(args.output.iterdir())):
         parser.error(f"{args.output} must be absent or an empty directory")
     try:
         Dialect.get_or_raise(args.dialect)
-    except ValueError as error:
-        parser.error(str(error))
+    except (ValueError, AttributeError) as error:  # sqlglot raises both for bad settings.
+        parser.error(f"invalid dialect {args.dialect!r}: {error}")
     paths = dict.fromkeys(
         file
         for path in args.inputs

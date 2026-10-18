@@ -13,7 +13,7 @@ cte2dbt [-h] -o OUTPUT [--dialect DIALECT] [--default-schema SCHEMA] INPUT [INPU
 
 | Argument | Value and default | Meaning |
 | --- | --- | --- |
-| `INPUT` | One or more paths | A `.sql` file, or a directory searched recursively for `*.sql` files in sorted order. A file named twice is read once. |
+| `INPUT` | One or more paths | A `.sql` file, or a directory searched recursively for `*.sql` files in sorted order. The same path given twice is read once. |
 | `-o`, `--output` | Required directory | Where to write the models and `sources.yml`. It must not exist or must be empty; it is created with its parents. |
 | `--dialect` | sqlglot dialect, `tsql` by default | The dialect of the scripts, with any sqlglot settings, such as `"tsql, normalization_strategy=case_sensitive"` for a case-sensitive collation. |
 | `--default-schema` | Schema name, `dbo` by default | The schema of tables and views named without one. |
@@ -70,4 +70,4 @@ first line, which for a parse error gives the line and column in the file.
 | --- | --- |
 | 0 | The files are written. Warnings may have been printed. Also after `--help`. |
 | 1 | An input could not be read, decoded or parsed; no input defines a view; the views could not be converted; or a file could not be written. Every unreadable input is reported before exiting. |
-| 2 | A usage error: an unknown option, a missing `--output`, an unknown dialect, or an output that exists and is a file or a directory that is not empty. |
+| 2 | A usage error: an unknown option, a missing `--output`, an unknown dialect or malformed dialect settings, or an output that exists and is a file or a directory that is not empty. |

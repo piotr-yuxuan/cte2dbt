@@ -662,10 +662,12 @@ def test_the_input_views_are_not_modified() -> None:
 
 def test_results_are_frozen() -> None:
     project = convert(
-        views("tsql", ("dbo.v", "SELECT 1 AS x")), dialect="tsql", default_schema="dbo"
+        views("tsql", ("dbo.v", "SELECT x FROM dbo.t")), dialect="tsql", default_schema="dbo"
     )
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        project.models[0].name = "w"  # type: ignore[misc]
+    for result in (project, project.models[0], project.sources[0]):
+        for item in dataclasses.fields(result):
+            with pytest.raises(dataclasses.FrozenInstanceError):
+                setattr(result, item.name, None)
 
 
 def test_quoted_and_unquoted_names_of_two_tables_are_not_merged() -> None:

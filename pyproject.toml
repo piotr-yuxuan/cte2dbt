@@ -76,8 +76,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Asserts are the test idiom; expectations are literal; test functions need no docstring; the
 # test modules sit in a rootdir without __init__.py; the SQL they build from their own constants
-# runs on in-memory DuckDB, and the Jinja they render is SQL, not HTML.
-"tests/**" = ["S101", "PLR2004", "D1", "INP001", "S608", "S701"]
+# runs on in-memory DuckDB, and the Jinja they render is SQL, not HTML; the command line
+# runs in a child process with fixed arguments.
+"tests/**" = ["S101", "PLR2004", "D1", "INP001", "S608", "S701", "S603"]
 # Standard output and standard error are the interface of the command line.
 "src/cte2dbt/cli.py" = ["T201"]
 # Standalone scripts, not a package, that print their progress and run fixed tool commands;

@@ -1,7 +1,8 @@
 # Python API
 
 Everything below is importable from `cte2dbt`. The functions are pure: they read no file,
-log nothing and never modify their arguments.
+log nothing themselves and never modify their arguments. sqlglot, which they call, may
+log notices to the `sqlglot` logger.
 
 ```python
 from sqlglot import exp, parse_one
