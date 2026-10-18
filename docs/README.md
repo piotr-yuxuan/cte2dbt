@@ -7,7 +7,8 @@
   [develop and integrate a change](how-to/develop.md).
 - **Reference:** [command line](reference/command-line.md);
   [Python API](reference/python-api.md); [conversion rules](reference/conversion-rules.md);
-  [checks](reference/checks.md); [reuse and attribution](reference/reuse.md).
+  [checks](reference/checks.md); [continuous integration](reference/ci.md);
+  [reuse and attribution](reference/reuse.md).
 - **Explanation:** [how views become models](explanation/conversion.md);
   [architecture](explanation/architecture.md).
 - **Work:** [roadmap](work/README.md).

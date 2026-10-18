@@ -27,3 +27,12 @@ Adapted from commit `b6fe2bee60071aa706002bfb3acec5054e4f8876`:
 Adapted from commit `2569c51d5555441f1c389655b568846fb807d7a4`:
 
 - `dev/scripts/check.py`: the `--external-links` option.
+- `.github/workflows/ci.yml`: keeps the `checks`, `dependency-review` and `codeql` jobs
+  and the schedules; drops Node, the service stack and the image audit; adds the
+  `compatibility` matrix.
+- `dev/resources/ci/compose.yaml`: keeps the actionlint and gitleaks images and digests;
+  drops trivy, as this repository builds no image.
+- `dev/scripts/tool.sh`: reads the image of a tool from the Compose file with awk and
+  checks its digest in bash, so that neither `images.py` nor PyYAML is needed.
+- `.github/dependabot.yml` and `.github/CODEOWNERS`: without npm, the platform images and
+  `.agents/`.
