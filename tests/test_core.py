@@ -308,6 +308,146 @@ CASES = [
 ]
 
 
+CASES += [
+    pytest.param(
+        TSQL,
+        [
+            (
+                "dbo.v",
+                (
+                    "WITH a (x, y) AS (SELECT p, q FROM dbo.t UNION ALL SELECT 1, 2)"
+                    " SELECT x, y FROM a"
+                ),
+            )
+        ],
+        {
+            "v__a": (
+                'SELECT * FROM (SELECT p, q FROM {{ source("dbo", "t") }} AS t'
+                " UNION ALL SELECT 1, 2) AS a(x, y)"
+            ),
+            "v": 'SELECT x, y FROM {{ ref("v__a") }} AS a',
+        },
+        [],
+        id="a CTE column list names the columns of its model",
+    ),
+    pytest.param(
+        TSQL,
+        [
+            (
+                "dbo.v",
+                (
+                    "WITH r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM R WHERE n < 10),"
+                    " s AS (SELECT n FROM r) SELECT n FROM s"
+                ),
+            )
+        ],
+        {
+            "v__r": (
+                "WITH r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM R WHERE n < 10)"
+                " SELECT * FROM r"
+            ),
+            "v__s": 'SELECT n FROM {{ ref("v__r") }} AS r',
+            "v": 'SELECT n FROM {{ ref("v__s") }} AS s',
+        },
+        [],
+        id="a recursive CTE keeps its WITH in its own model",
+    ),
+    pytest.param(
+        TSQL,
+        [
+            (
+                "dbo.v",
+                (
+                    "WITH base AS (SELECT id FROM dbo.t), r (id) AS (SELECT id FROM base"
+                    " UNION ALL SELECT r.id + 1 FROM r JOIN dbo.u ON 1 = 0) SELECT id FROM r"
+                ),
+            )
+        ],
+        {
+            "v__base": 'SELECT id FROM {{ source("dbo", "t") }} AS t',
+            "v__r": (
+                'WITH r(id) AS (SELECT id FROM {{ ref("v__base") }} AS base'
+                ' UNION ALL SELECT r.id + 1 FROM r JOIN {{ source("dbo", "u") }} AS u ON 1 = 0)'
+                " SELECT * FROM r"
+            ),
+            "v": 'SELECT id FROM {{ ref("v__r") }} AS r',
+        },
+        [],
+        id="a recursive CTE still refs earlier CTEs and reads sources",
+    ),
+    pytest.param(
+        ("postgres", "public"),
+        [
+            (
+                "v",
+                (
+                    "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)"
+                    " SELECT n FROM r"
+                ),
+            )
+        ],
+        {
+            "v__r": (
+                "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)"
+                " SELECT * FROM r"
+            ),
+            "v": 'SELECT n FROM {{ ref("v__r") }} AS r',
+        },
+        [],
+        id="WITH RECURSIVE is kept where the dialect needs it",
+    ),
+    pytest.param(
+        DUCKDB,
+        [
+            (
+                "main.v",
+                (
+                    "WITH orders AS (SELECT * FROM orders WHERE amount > 10)"
+                    " SELECT COUNT(*) AS n FROM orders"
+                ),
+            )
+        ],
+        {
+            "v__orders": 'SELECT * FROM {{ source("main", "orders") }} AS orders WHERE amount > 10',
+            "v": 'SELECT COUNT(*) AS n FROM {{ ref("v__orders") }} AS orders',
+        },
+        [],
+        id="without RECURSIVE a CTE named like a table reads the table",
+    ),
+]
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "oracle", "snowflake", "sqlite"])
+def test_a_self_reference_is_recursion_where_no_keyword_is_needed(dialect: str) -> None:
+    project = convert(
+        views(
+            dialect, ("v", "WITH r (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT n FROM r")
+        ),
+        dialect=dialect,
+        default_schema="s",
+    )
+    recursive, final = project.models
+    assert recursive.name == "v__r"
+    assert flat(recursive.sql) == flat(
+        "WITH r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT * FROM r"
+    )
+    assert (recursive.refs, recursive.sources) == ((), ())
+    assert final.refs == ("v__r",)
+
+
+def test_a_view_column_list_names_the_columns_of_its_model() -> None:
+    query = sqlglot.parse_one("SELECT p, q FROM dbo.t", read="tsql")
+    assert isinstance(query, exp.Query)
+    columns = (exp.to_identifier("a"), exp.to_identifier("b"))
+    view = View(exp.to_table("dbo.v", dialect="tsql"), query, columns)
+    parents = [column.parent for column in columns]
+    project = convert([view], dialect="tsql", default_schema="dbo")
+    assert models(project) == {
+        "v": flat('SELECT * FROM (SELECT p, q FROM {{ source("dbo", "t") }} AS t) AS v(a, b)')
+    }
+    assert [column.parent for column in view.columns] == parents
+
+
 @pytest.mark.parametrize(("dialect", "named", "expected", "warnings"), CASES)
 def test_conversion(
     dialect: tuple[str, str],

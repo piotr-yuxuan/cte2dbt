@@ -8,8 +8,12 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from sqlglot import exp
+from sqlglot.dialects import TSQL, Oracle, Snowflake, SQLite
 from sqlglot.dialects.dialect import Dialect
 from sqlglot.errors import ErrorLevel
+
+_RECURSIVE_WITHOUT_KEYWORD = (TSQL, Oracle, Snowflake, SQLite)
+"""Dialects in which a common table expression that names itself is recursive."""
 
 _PLACEHOLDER = re.compile(r"__cte2dbt_(\d+)__")
 """Stands for the i-th reference of a model until its Jinja is written in."""
@@ -78,13 +82,16 @@ class _Links:
     targets: list[str] = field(default_factory=list)
     refs: set[str] = field(default_factory=set)
     sources: set[Source] = field(default_factory=set)
+    recursive: bool = False
 
 
 def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Project:
     """Convert views into dbt models that ref() one another and read dbt sources.
 
     Each common table expression of a view becomes a model named <view>__<cte>, and the
-    query of the view a model named after the view. A table that another view defines
+    query of the view a model named after the view. A recursive common table expression
+    keeps its WITH in its own model, and a column list wraps the query in a derived table
+    that names the columns. A table that another view defines
     becomes a ref() of that view's model; any other stored table becomes a source(), in
     default_schema when it is named without a schema. Names compare as the dialect
     compares identifiers. The input views are not modified.
@@ -98,6 +105,7 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
     listed = tuple(views)
     for view in listed:
         conversion.views[_relation(view.name, conversion)[0]] = _model_name(view.name.name)
+    implicit = isinstance(conversion.dialect, _RECURSIVE_WITHOUT_KEYWORD)
     for view in listed:
         prefix = _model_name(view.name.name)
         if prefix != view.name.name:
@@ -107,13 +115,30 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
         clause = ctes[0].parent if ctes else None
         if isinstance(clause, exp.With):
             clause.pop()
+        explicit = isinstance(clause, exp.With) and clause.recursive
         visible: dict[str, str] = {}
         for cte in ctes:
             alias: exp.TableAlias = cte.args["alias"]
+            own = _key(alias.this, conversion.dialect)
             name = f"{prefix}__{_model_name(alias.name)}"
-            _add(conversion, name, cte.this, _rewrite(cte.this, visible, conversion, name))
-            visible[_key(alias.this, conversion.dialect)] = name
-        _add(conversion, prefix, query, _rewrite(query, visible, conversion, prefix))
+            links = _rewrite(
+                cte.this, visible, own if implicit or explicit else None, conversion, name
+            )
+            body = (
+                exp.select("*")
+                .from_(exp.Table(this=alias.this.copy()))
+                .with_(alias, as_=cte.this, recursive=explicit)
+                if links.recursive
+                else _wrap(cte.this, alias)
+                if alias.columns
+                else cte.this
+            )
+            _add(conversion, name, body, links)
+            visible[own] = name
+        links = _rewrite(query, visible, None, conversion, prefix)
+        columns = [column.copy() for column in view.columns]
+        alias = exp.TableAlias(this=view.name.this.copy(), columns=columns)
+        _add(conversion, prefix, _wrap(query, alias) if columns else query, links)
     models = {model.name: model for model in conversion.models.values()}
     sorter = graphlib.TopologicalSorter({name: model.refs for name, model in models.items()})
     try:
@@ -134,7 +159,11 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
 
 
 def _rewrite(
-    body: exp.Query, visible: Mapping[str, str], conversion: _Conversion, model: str
+    body: exp.Query,
+    visible: Mapping[str, str],
+    own: str | None,
+    conversion: _Conversion,
+    model: str,
 ) -> _Links:
     # Classify each table once, then point it at a placeholder for its ref() or source().
     dialect = conversion.dialect
@@ -159,7 +188,8 @@ def _rewrite(
             and key[-1] in {_key(cte.args["alias"].this, dialect) for cte in scope.ctes}
         ):
             scope = scope.parent
-        if single and scope is not None:
+        if single and (scope is not None or key[-1] == own):
+            links.recursive = links.recursive or scope is None
             continue
         target = (visible.get(key[-1]) if single else None) or conversion.views.get(key)
         if target:
@@ -239,6 +269,10 @@ def _key(identifier: exp.Expr, dialect: Dialect) -> str:
 
 def _model_name(text: str) -> str:
     return _NOT_IN_NAME.sub("_", text)
+
+
+def _wrap(query: exp.Query, alias: exp.TableAlias) -> exp.Select:
+    return exp.select("*").from_(exp.Subquery(this=query, alias=alias))
 
 
 def _literal(text: str) -> str:
