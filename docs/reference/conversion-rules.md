@@ -13,8 +13,8 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
 | A line holding only `GO`, with an optional count, semicolon or `--` comment | Ends a batch, in T-SQL and the dialects derived from it, as sqlcmd does. Each batch is parsed on its own, so a guard such as `IF ... DROP VIEW` ends with its batch. Inside a string or block comment the line ends the batch too, which then fails to parse. |
 | `USE`; `SET` options switched `ON`; an empty statement | Ignored. |
 | `SET QUOTED_IDENTIFIER OFF` | Error: double-quoted text after it would be read as names. |
-| Another `SET` option, such as `SET ANSI_NULLS OFF` | Skipped, with a warning that the views after it are built with the option `ON`. |
-| A statement that defines a view but cannot be read as one: a view `WITH CHECK OPTION`, a view created by dynamic SQL in `EXEC`, a view whose body is not a query | Error. |
+| Another `SET` statement | Skipped with a warning. When it switches off an option that dbt's connections switch on (`ANSI_NULLS`, `ANSI_PADDING`, `ANSI_WARNINGS`, `ARITHABORT`, `CONCAT_NULL_YIELDS_NULL`), the warning adds that the views after it are built with the option `ON`. |
+| A statement that defines a view, with any modifiers between `CREATE` and `VIEW`, but cannot be read as one: a view `WITH CHECK OPTION`, a materialised view, an Oracle `EDITIONABLE` view, a view created by dynamic SQL in `EXEC`, a view whose body is not a query | Error. Comments are not searched, and a grant of the `CREATE VIEW` permission is not a view. |
 | SQL that sqlglot cannot parse | Error. |
 | Anything else: grants, `EXEC`, `ALTER VIEW`, a guarded `DROP VIEW`, procedures, a query on its own | Skipped, with the warning `skipped statement: STATEMENT`. |
 
@@ -33,7 +33,9 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
    Fabric, Oracle, Snowflake and SQLite, or under `WITH RECURSIVE` in any dialect. The
    expression becomes a recursive model, below.
 4. **An earlier common table expression** of the same view, by a one-part name, becomes
-   `{{ ref("VIEW__CTE") }}`. A common table expression does not see later ones.
+   `{{ ref("VIEW__CTE") }}`. A common table expression does not see later ones, except in
+   SQLite, and in Postgres under `WITH RECURSIVE`, where every expression of the same
+   `WITH` is visible, at the top level as in a nested `WITH`.
 5. **A converted view**, matched by database, schema and name, becomes `{{ ref("VIEW") }}`.
 6. **Anything else** becomes `{{ source("SOURCE", "TABLE") }}`.
 
@@ -63,8 +65,9 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
 - A common table expression or a view with a column list becomes
   `SELECT * FROM (QUERY) AS NAME(COLUMNS)`.
 - A recursive common table expression becomes `WITH NAME AS (QUERY) SELECT * FROM NAME`,
-  with `RECURSIVE` only where it was written, and with its `MATERIALIZED`, `USING KEY`,
-  `SEARCH` and `CYCLE` clauses. No model refs itself.
+  with `RECURSIVE` only where it was written, and with its `MATERIALIZED` or `USING KEY`.
+  A `SEARCH` or `CYCLE` clause, which sqlglot reads after the last expression only, stays
+  with the model of that expression. No model refs itself.
 - `{{`, `{%` and `{#` in strings, comments and names are written `{{ '{' }}{`,
   `{{ '{' }}%` and `{{ '{' }}#`, so that dbt prints them unchanged.
 - The arguments of `ref()` and `source()` are double-quoted strings, escaped as in JSON.

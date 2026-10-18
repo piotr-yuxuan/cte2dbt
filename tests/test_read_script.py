@@ -1,6 +1,9 @@
 """Reading exported scripts: which statements become views, which are skipped, which fail."""
 
 import pytest
+import sqlglot
+from sqlglot import exp
+from sqlglot.dialects.dialect import Dialect
 from sqlglot.errors import ParseError, SqlglotError
 
 from cte2dbt import convert, read_script
@@ -50,11 +53,12 @@ def test_an_ssms_export_gives_its_views_in_order() -> None:
             ["SET ANSI_NULLS OFF; the views after it are built with this option ON"],
             id="a SET option off",
         ),
+        pytest.param("SET NOCOUNT OFF", ["SET NOCOUNT OFF"], id="an option off by default"),
+        pytest.param("SET DATEFORMAT dmy", ["SET DATEFORMAT dmy"], id="an option without ON"),
         pytest.param(
-            "IF EXISTS (SELECT * FROM sys.views WHERE name = 'v') DROP VIEW dbo.v",
-            # Cut after 80 characters.
-            ["IF EXISTS(SELECT * FROM sys.views WHERE name = 'v') BEGIN DROP VIEW dbo.v"],
-            id="a guarded drop",
+            "GRANT CREATE VIEW TO reporting",
+            ["GRANT CREATE VIEW TO reporting"],
+            id="a grant of the permission to create views",
         ),
         pytest.param(
             "GRANT SELECT ON dbo.v TO excel_readers",
@@ -82,6 +86,11 @@ def test_other_statements_are_skipped_with_a_warning(text: str, skipped: list[st
             "CREATE VIEW v AS SELECT 1 AS x WITH CHECK OPTION",
             "defines a view that cannot be read",
             id="a view sqlglot cannot parse",
+        ),
+        pytest.param(
+            "CREATE OR ALTER VIEW dbo.v WITH SCHEMABINDING, VIEW_METADATA AS SELECT 1 AS x",
+            "defines a view that cannot be read",
+            id="a view with options sqlglot keeps as text",
         ),
         pytest.param(
             "IF NOT EXISTS (SELECT * FROM sys.views WHERE name = 'v')\n"
@@ -150,3 +159,62 @@ def test_a_go_line_inside_a_string_ends_the_batch_as_sqlcmd_would() -> None:
 def test_a_view_whose_body_is_not_a_query_fails() -> None:
     with pytest.raises(ParseError, match="defines a view that cannot be read"):
         read_script("CREATE VIEW main.v AS VALUES (1), (2)", dialect="duckdb")
+
+
+def test_a_guarded_drop_is_skipped() -> None:
+    script = read_script(
+        "-- Replaces CREATE VIEW dbo.old\n"
+        "IF EXISTS (SELECT * FROM sys.views WHERE name = 'v') DROP VIEW dbo.v",
+        dialect="tsql",
+    )
+    assert script.views == ()
+    [warning] = script.warnings
+    assert warning.startswith("skipped statement: IF EXISTS")
+
+
+@pytest.mark.parametrize(
+    ("text", "dialect"),
+    [
+        pytest.param(
+            'CREATE OR REPLACE FORCE EDITIONABLE VIEW "S"."V" ("A") AS SELECT 1 A FROM dual',
+            "oracle",
+            id="an Oracle view with modifiers",
+        ),
+        pytest.param(
+            "CREATE MATERIALIZED VIEW public.mv AS SELECT 1 AS x WITH NO DATA",
+            "postgres",
+            id="a materialised view",
+        ),
+    ],
+)
+def test_views_with_modifiers_sqlglot_keeps_as_text_fail(text: str, dialect: str) -> None:
+    with pytest.raises(ParseError, match="defines a view that cannot be read"):
+        read_script(text, dialect=dialect)
+
+
+def test_only_options_that_dbt_switches_on_are_flagged() -> None:
+    script = read_script("SET ANSI_WARNINGS OFF\nGO\nSET NUMERIC_ROUNDABORT OFF", dialect="tsql")
+    assert list(script.warnings) == [
+        (
+            "skipped statement: SET ANSI_WARNINGS OFF;"
+            " the views after it are built with this option ON"
+        ),
+        "skipped statement: SET NUMERIC_ROUNDABORT OFF",
+    ]
+
+
+def test_each_batch_is_parsed_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The text before a batch is not parsed again with it, so the time stays linear.
+    batch = "CREATE VIEW dbo.v{} AS SELECT {} AS x\n"
+    text = "GO\n".join(batch.format(i, i) for i in range(50))
+    parsed: list[str] = []
+    parse = sqlglot.parse
+
+    def spy(sql: str, read: Dialect) -> list[exp.Expr | None]:
+        parsed.append(sql)
+        return parse(sql, read=read)
+
+    monkeypatch.setattr(sqlglot, "parse", spy)
+    assert len(read_script(text, dialect="tsql").views) == 50
+    # A batch keeps the newline that ends its GO line; the text before it would be longer.
+    assert max(len(sql) for sql in parsed) < 2 * len(batch.format(49, 49))

@@ -37,7 +37,8 @@ Convert views into dbt models, following [the conversion rules](conversion-rules
 without one.
 
 Raises `ValueError` for an unknown dialect; when two models would share a name, ignoring
-case; when views refer to one another in a cycle; when two sources would share a dbt
+case; when views refer to one another in a cycle; when two different tables would be
+one source, such as `Foo` and `"Foo"` in Postgres; when two sources would share a dbt
 source name; when a table without a schema is read and `default_schema` is empty; when
 dropping a schema from a column would bind it to another table; and when the SQL
 contains the reserved text `__cte2dbt_`. Raises `sqlglot.errors.UnsupportedError` when
@@ -69,7 +70,7 @@ ending with a newline, and `sources.yml`, in
 | | `query: exp.Query` | The query of the view. |
 | | `columns: tuple[exp.Identifier, ...]` | The column list of the view, empty when there is none. |
 | `Script` | `views: tuple[View, ...]` | The views of the script, in script order. |
-| | `warnings: tuple[str, ...]` | One `skipped statement: STATEMENT` per statement skipped. |
+| | `warnings: tuple[str, ...]` | One `skipped statement: STATEMENT` per statement skipped, followed by a note for an option that dbt switches on, such as `SET ANSI_NULLS OFF`. |
 | `Project` | `models: tuple[Model, ...]` | Every model, each after the models it refs. |
 | | `sources: tuple[Source, ...]` | Every source read by a model, sorted, each once. |
 | | `warnings: tuple[str, ...]` | What to review, in conversion order. |

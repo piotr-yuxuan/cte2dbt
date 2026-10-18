@@ -9,17 +9,31 @@ from dataclasses import dataclass, field
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.dialects import TSQL, Oracle, Snowflake, SQLite
+from sqlglot.dialects import TSQL, Oracle, Postgres, Snowflake, SQLite
 from sqlglot.dialects.dialect import Dialect
-from sqlglot.errors import ErrorLevel, ParseError
+from sqlglot.errors import ErrorLevel, ParseError, SqlglotError
 
 _GO = re.compile(
     r"^[ \t]*GO(?:[ \t]+\d+)?[ \t]*;?[ \t]*(?:--[^\r\n]*)?\r?$", re.IGNORECASE | re.MULTILINE
 )
 """A line that holds only the batch separator GO, with an optional count and comment."""
 
-_CREATE_VIEW = re.compile(r"\bCREATE\s+(?:OR\s+(?:ALTER|REPLACE)\s+)?VIEW\b", re.IGNORECASE)
-"""Text that defines a view, in a statement that is not read as a view."""
+_CREATE_VIEW = re.compile(r"\bCREATE\s+(?:\w+\s+)*?VIEW\b", re.IGNORECASE)
+"""Text that defines a view, with any modifiers between CREATE and VIEW."""
+
+_PERMISSIONS = frozenset({"GRANT", "DENY", "REVOKE"})
+"""Statements that may name the CREATE VIEW permission without defining a view."""
+
+_ANSI_DEFAULTS_OFF = frozenset(
+    {
+        "ANSI_NULLS OFF",
+        "ANSI_PADDING OFF",
+        "ANSI_WARNINGS OFF",
+        "ARITHABORT OFF",
+        "CONCAT_NULL_YIELDS_NULL OFF",
+    }
+)
+"""SQL Server options switched off that are on in the connections dbt opens."""
 
 _RECURSIVE_WITHOUT_KEYWORD = (TSQL, Oracle, Snowflake, SQLite)
 """Dialects in which a common table expression that names itself is recursive."""
@@ -126,7 +140,12 @@ def read_script(text: str, *, dialect: str) -> Script:
     warnings: list[str] = []
     lines = 0
     for batch in _GO.split(text) if isinstance(target, TSQL) else [text]:
-        statements = sqlglot.parse("\n" * lines + batch, read=target)
+        try:
+            statements = sqlglot.parse(batch, read=target)
+        except SqlglotError:
+            # Parse the batch again at its place in the text, for the error's line numbers.
+            sqlglot.parse("\n" * lines + batch, read=target)
+            raise
         lines += batch.count("\n")
         for statement in statements:
             if statement is None or isinstance(statement, exp.Use):
@@ -157,11 +176,20 @@ def read_script(text: str, *, dialect: str) -> Script:
                 )
                 views.append(View(schema.this, statement.expression, columns))
                 continue
-            if _CREATE_VIEW.search(sql):
+            permission = isinstance(statement, exp.Grant) or (
+                isinstance(statement, exp.Command) and statement.name.upper() in _PERMISSIONS
+            )
+            if (
+                _CREATE_VIEW.search(statement.sql(dialect=target, comments=False))
+                and not permission
+            ):
                 msg = f"this statement defines a view that cannot be read as one: {sql[:80]}"
                 raise ParseError(msg)
-            # dbt builds every view with SQL Server's default options, all ON.
-            note = "; the views after it are built with this option ON" if settings else ""
+            note = (
+                "; the views after it are built with this option ON"
+                if _ANSI_DEFAULTS_OFF.intersection(settings)
+                else ""
+            )
             warnings.append(f"skipped statement: {sql[:80]}{note}")
     return Script(tuple(views), tuple(warnings))
 
@@ -178,9 +206,10 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
     compares identifiers. The input views are not modified.
 
     Raise ValueError for an unknown dialect, when two models would share a name ignoring
-    case, when views refer to one another in a cycle, when two sources would share a dbt
-    source name, when dropping a schema from a column would bind it to another table, or
-    when the SQL contains the reserved text __cte2dbt_.
+    case, when views refer to one another in a cycle, when two different tables would be
+    one source, when two sources would share a dbt source name, when dropping a schema from
+    a column would bind it to another table, or when the SQL contains the reserved text
+    __cte2dbt_.
     """
     conversion = _Conversion(Dialect.get_or_raise(dialect), default_schema)
     listed = tuple(views)
@@ -197,20 +226,25 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
         if isinstance(clause, exp.With):
             clause.pop()
         explicit = isinstance(clause, exp.With) and clause.recursive
-        visible: dict[str, str] = {}
+        cte_models = {
+            _key(cte.args["alias"].this, conversion.dialect): f"{prefix}__{_model_name(cte.alias)}"
+            for cte in ctes
+        }
+        visible = dict(cte_models) if _forward(conversion.dialect, explicit=explicit) else {}
         for cte in ctes:
             alias: exp.TableAlias = cte.args["alias"]
             own = _key(alias.this, conversion.dialect)
-            name = f"{prefix}__{_model_name(alias.name)}"
+            name = cte_models[own]
             links = _rewrite(
                 cte.this, visible, own if implicit or explicit else None, conversion, name
             )
             _requalify(cte.this, links, conversion, name)
-            body = _wrap(cte.this, alias) if alias.columns else cte.this
+            body = _wrap(cte.this, alias) if alias.columns and not links.recursive else cte.this
             if links.recursive:
-                # Keep the CTE node, with any MATERIALIZED or USING KEY, and the SEARCH and
-                # CYCLE that sqlglot stores on the WITH after its last CTE. "with_" is the
-                # key of every supported sqlglot; the compatibility tests guard it.
+                # Keep the CTE node, with any MATERIALIZED or USING KEY, and the SEARCH or
+                # CYCLE clause that sqlglot stores as "search" on the WITH, after its last CTE.
+                # "with_" is the key of every supported sqlglot; the compatibility tests
+                # guard both keys.
                 last = isinstance(clause, exp.With) and cte is ctes[-1]
                 body = exp.select("*").from_(exp.Table(this=alias.this.copy()))
                 body.set(
@@ -219,7 +253,6 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
                         expressions=[cte],
                         recursive=explicit,
                         search=clause.args.get("search") if last and clause else None,
-                        cycle=clause.args.get("cycle") if last and clause else None,
                     ),
                 )
             _add(conversion, name, body, links)
@@ -280,6 +313,11 @@ def _rewrite(
     dialect = conversion.dialect
     implicit = isinstance(dialect, _RECURSIVE_WITHOUT_KEYWORD)
     links = _Links()
+    conversion.warnings.extend(
+        f"{model}: {lateral.sql(dialect=dialect, normalize_functions=False)} kept as written"
+        for lateral in body.find_all(exp.Lateral)
+        if not isinstance(lateral.this, exp.Subquery)
+    )
     for table in list(body.find_all(exp.Table)):
         name = table.this
         if (
@@ -294,14 +332,19 @@ def _rewrite(
         key, written = _relation(table, conversion)
         single = len(table.parts) == 1
         # Walk out through the WITH clauses nested in the body. From inside a CTE, only the
-        # CTEs before it are visible, and itself when its WITH is recursive.
+        # CTEs before it are visible, itself when it may be recursive, and all of them where
+        # the dialect allows forward references.
         scope, through, local = table.parent, None, False
         while scope is not None and not local:
             ctes = scope.ctes if isinstance(scope, exp.Query) else []
             names = [_key(cte.args["alias"].this, dialect) for cte in ctes]
             clause = ctes[0].parent if ctes else None
-            itself = implicit or (isinstance(clause, exp.With) and clause.recursive)
-            end = next((i + itself for i, cte in enumerate(ctes) if cte is through), len(names))
+            keyword = isinstance(clause, exp.With) and clause.recursive
+            end = next(
+                (i + (implicit or keyword) for i, cte in enumerate(ctes) if cte is through),
+                len(names),
+            )
+            end = len(names) if _forward(dialect, explicit=keyword) else end
             local = key[-1] in names[:end]
             through = scope if isinstance(scope, exp.CTE) else through
             scope = scope.parent
@@ -332,37 +375,32 @@ def _rewrite(
         table.set("this", exp.to_identifier(f"__cte2dbt_{len(links.targets) - 1}__"))
         table.set("db", None)
         table.set("catalog", None)
-    conversion.warnings.extend(
-        f"{model}: {lateral.sql(dialect=dialect, normalize_functions=False)} kept as written"
-        for lateral in body.find_all(exp.Lateral)
-        if not isinstance(lateral.this, exp.Subquery)
-    )
     return links
 
 
 def _requalify(body: exp.Query, links: _Links, conversion: _Conversion, model: str) -> None:
     # A table that received its written name as alias is exposed by that name alone: drop
-    # the schema from each column qualified by the full name of that table.
+    # the schema from each column qualified by the name of that table.
     dialect = conversion.dialect
+    exposed_by: dict[int, list[tuple[str, exp.TableAlias]]] = {}
+    for alias in body.find_all(exp.TableAlias):
+        if isinstance(alias.this, exp.Identifier):
+            scope = id(alias.find_ancestor(exp.Select))
+            exposed_by.setdefault(scope, []).append((_key(alias.this, dialect), alias))
     for column in list(body.find_all(exp.Column)):
         if not column.args.get("db"):
             continue
         key = _relation(column, conversion)[0]
-        if key not in links.aliased.values():
+        if not any(_same_table(key, table) for table in links.aliased.values()):
             continue
         # The column binds to the innermost SELECT that exposes its table's name.
-        scope = column.find_ancestor(exp.Select)
+        select = column.find_ancestor(exp.Select)
         exposed: list[exp.TableAlias] = []
-        while scope is not None and not exposed:
-            exposed = [
-                alias
-                for alias in scope.find_all(exp.TableAlias)
-                if alias.find_ancestor(exp.Select) is scope
-                and isinstance(alias.this, exp.Identifier)
-                and _key(alias.this, dialect) == key[-1]
-            ]
-            scope = scope.find_ancestor(exp.Select)
-        if [links.aliased.get(id(alias)) for alias in exposed] != [key]:
+        while select is not None and not exposed:
+            exposed = [alias for name, alias in exposed_by.get(id(select), []) if name == key[-1]]
+            select = select.find_ancestor(exp.Select)
+        owners = [links.aliased.get(id(alias)) for alias in exposed]
+        if len(owners) != 1 or not owners[0] or not _same_table(key, owners[0]):
             msg = (
                 f"{model}: {column.sql(dialect=dialect)} would bind to another table once its"
                 " schema is dropped; give the tables aliases"
@@ -404,6 +442,16 @@ def _relation(
         node.args["table"] if isinstance(node, exp.Column) else node.this,
     )
     return tuple(_key(part, conversion.dialect) for part in parts), tuple(p.name for p in parts)
+
+
+def _same_table(column: tuple[str, ...], table: tuple[str, ...]) -> bool:
+    # Same schema and name; a database written on one side only does not tell them apart.
+    return column[1:] == table[1:] and (not column[0] or not table[0] or column[0] == table[0])
+
+
+def _forward(dialect: Dialect, *, explicit: bool) -> bool:
+    # Whether a CTE may read the CTEs declared after it in the same WITH.
+    return isinstance(dialect, SQLite) or (explicit and isinstance(dialect, Postgres))
 
 
 def _key(identifier: exp.Expr, dialect: Dialect) -> str:

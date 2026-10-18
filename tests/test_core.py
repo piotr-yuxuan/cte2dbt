@@ -511,6 +511,188 @@ CASES += [
 ]
 
 
+CASES += [
+    pytest.param(
+        TSQL,
+        [("dbo.v", "SELECT dbo.t1.id, Sales.dbo.t2.id FROM Sales.dbo.t1 CROSS JOIN dbo.t2")],
+        {
+            "v": 'SELECT t1.id, t2.id FROM {{ source("Sales__dbo", "t1") }} AS t1'
+            ' CROSS JOIN {{ source("dbo", "t2") }} AS t2'
+        },
+        [],
+        id="a database written on one side only still names the same table",
+    ),
+    pytest.param(
+        TSQL,
+        [
+            (
+                "dbo.v",
+                (
+                    "SELECT dbo.t1.id FROM dbo.t1"
+                    " WHERE EXISTS (SELECT 1 FROM dbo.t2 WHERE dbo.t2.id = dbo.t1.id)"
+                ),
+            )
+        ],
+        {
+            "v": 'SELECT t1.id FROM {{ source("dbo", "t1") }} AS t1 WHERE EXISTS'
+            ' (SELECT 1 FROM {{ source("dbo", "t2") }} AS t2 WHERE t2.id = t1.id)'
+        },
+        [],
+        id="a correlated column binds to the outer table",
+    ),
+    pytest.param(
+        ("sqlite", "main"),
+        [("v", "WITH a AS (SELECT x FROM b), b AS (SELECT 1 AS x) SELECT x FROM a")],
+        {
+            "v__b": "SELECT 1 AS x",
+            "v__a": 'SELECT x FROM {{ ref("v__b") }} AS b',
+            "v": 'SELECT x FROM {{ ref("v__a") }} AS a',
+        },
+        [],
+        id="SQLite lets a CTE read a later one",
+    ),
+    pytest.param(
+        ("sqlite", "main"),
+        [
+            (
+                "v",
+                (
+                    "WITH a AS (SELECT * FROM (WITH c AS (SELECT * FROM d), d AS (SELECT 7 AS id)"
+                    " SELECT * FROM c) AS q) SELECT * FROM a"
+                ),
+            )
+        ],
+        {
+            "v__a": "SELECT * FROM (WITH c AS (SELECT * FROM d), d AS (SELECT 7 AS id)"
+            " SELECT * FROM c) AS q",
+            "v": 'SELECT * FROM {{ ref("v__a") }} AS a',
+        },
+        [],
+        id="SQLite lets a nested CTE read a later one",
+    ),
+    pytest.param(
+        ("postgres", "public"),
+        [
+            (
+                "v",
+                (
+                    "WITH a AS (SELECT * FROM (WITH RECURSIVE r(n) AS"
+                    " (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r) AS q)"
+                    " SELECT * FROM a"
+                ),
+            )
+        ],
+        {
+            "v__a": "SELECT * FROM (WITH RECURSIVE r(n) AS"
+            " (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r) AS q",
+            "v": 'SELECT * FROM {{ ref("v__a") }} AS a',
+        },
+        [],
+        id="a nested recursive CTE reads itself",
+    ),
+    pytest.param(
+        DUCKDB,
+        [
+            (
+                "main.v",
+                (
+                    "WITH a AS (SELECT * FROM (WITH RECURSIVE r(n) AS"
+                    " (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r) AS q)"
+                    " SELECT * FROM a"
+                ),
+            )
+        ],
+        {
+            "v__a": "SELECT * FROM (WITH RECURSIVE r(n) AS"
+            " (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r) AS q",
+            "v": 'SELECT * FROM {{ ref("v__a") }} AS a',
+        },
+        [],
+        id="a nested recursive CTE reads itself without forward references",
+    ),
+    pytest.param(
+        ("snowflake", "PUBLIC"),
+        [
+            (
+                "v",
+                (
+                    "WITH a AS (SELECT * FROM (WITH r (n) AS"
+                    " (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r) AS q)"
+                    " SELECT * FROM a"
+                ),
+            )
+        ],
+        {
+            "v__a": "SELECT * FROM (WITH r(n) AS"
+            " (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r) AS q",
+            "v": 'SELECT * FROM {{ ref("v__a") }} AS a',
+        },
+        [],
+        id="a nested CTE reads itself where recursion needs no keyword",
+    ),
+    pytest.param(
+        ("postgres", "public"),
+        [
+            (
+                "v",
+                (
+                    "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)"
+                    " CYCLE n SET is_cycle USING path SELECT n FROM r"
+                ),
+            )
+        ],
+        {
+            "v__r": "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)"
+            " CYCLE n SET is_cycle USING path SELECT * FROM r",
+            "v": 'SELECT n FROM {{ ref("v__r") }} AS r',
+        },
+        [],
+        id="a recursive CTE keeps its CYCLE clause",
+    ),
+    pytest.param(
+        ("postgres", "public"),
+        [
+            (
+                "v",
+                (
+                    "WITH RECURSIVE a(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM a WHERE n < 3),"
+                    " b(m) AS (SELECT n FROM a UNION ALL SELECT m + 1 FROM b WHERE m < 5)"
+                    " SEARCH DEPTH FIRST BY m SET ord SELECT m FROM b"
+                ),
+            )
+        ],
+        {
+            "v__a": "WITH RECURSIVE a(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM a WHERE n < 3)"
+            " SELECT * FROM a",
+            "v__b": 'WITH RECURSIVE b(m) AS (SELECT n FROM {{ ref("v__a") }} AS a'
+            " UNION ALL SELECT m + 1 FROM b WHERE m < 5) SEARCH DEPTH FIRST BY m SET ord"
+            " SELECT * FROM b",
+            "v": 'SELECT m FROM {{ ref("v__b") }} AS b',
+        },
+        [],
+        id="SEARCH stays with the last CTE",
+    ),
+    pytest.param(
+        TSQL,
+        [
+            (
+                "dbo.v",
+                (
+                    "SELECT t.id, f.x FROM dbo.t AS t"
+                    " CROSS APPLY dbo.fn((SELECT MAX(id) FROM dbo.u)) AS f"
+                ),
+            )
+        ],
+        {
+            "v": 'SELECT t.id, f.x FROM {{ source("dbo", "t") }} AS t'
+            ' CROSS APPLY dbo.fn((SELECT MAX(id) FROM {{ source("dbo", "u") }} AS u)) AS f'
+        },
+        ["v: CROSS APPLY dbo.fn((SELECT MAX(id) FROM dbo.u)) AS f kept as written"],
+        id="a function under APPLY is reported as written",
+    ),
+]
+
+
 @pytest.mark.parametrize("dialect", ["tsql", "oracle", "snowflake", "sqlite"])
 def test_a_self_reference_is_recursion_where_no_keyword_is_needed(dialect: str) -> None:
     project = convert(

@@ -183,6 +183,12 @@ TSQL_VIEWS = {
         "WITH top2 AS (SELECT TOP 2 id, x FROM dbo.t1 ORDER BY id DESC) SELECT * FROM top2"
     ),
     "a CTE column list": "WITH c (a, b) AS (SELECT id, x FROM dbo.t1) SELECT a, b FROM c",
+    "a column naming the table without its database": (
+        "SELECT dbo.t1.id FROM memory.dbo.t1 WHERE dbo.t1.x > 10"
+    ),
+    "a column naming the table with its database": (
+        "SELECT memory.dbo.t1.id FROM dbo.t1 WHERE memory.dbo.t1.x > 10"
+    ),
     "schema-qualified columns in a union": (
         "SELECT dbo.t1.id FROM dbo.t1 UNION ALL SELECT dbo.t1.id FROM dbo.t1"
     ),
@@ -234,3 +240,14 @@ def test_random_chains_of_ctes(chain: tuple[str, list[int | None]]) -> None:
     order = [model.name for model in project.models]
     for model in project.models:
         assert all(order.index(ref) < order.index(model.name) for ref in model.refs)
+
+
+def test_a_nested_cte_named_like_a_table_reads_that_source() -> None:
+    project = check(
+        "CREATE VIEW main.v AS WITH a AS (SELECT * FROM"
+        " (WITH orders AS (SELECT * FROM orders WHERE amount > 10) SELECT * FROM orders) AS q)"
+        " SELECT * FROM a",
+        "duckdb",
+        "main",
+    )
+    assert project.sources == (Source("", "main", "orders"),)
