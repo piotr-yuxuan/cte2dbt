@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: Software Development :: Code Generators",
     "Typing :: Typed",
 ]
-dependencies = ["sqlglot>=30.0,<31"]
+dependencies = ["sqlglot>=30.19,<31"]
 
 [project.scripts]
 cte2dbt = "cte2dbt.cli:main"

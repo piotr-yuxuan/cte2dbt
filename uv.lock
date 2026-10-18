@@ -422,7 +422,7 @@ test = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "sqlglot", specifier = ">=30.0,<31" }]
+requires-dist = [{ name = "sqlglot", specifier = ">=30.19,<31" }]
 
 [package.metadata.requires-dev]
 dev = [

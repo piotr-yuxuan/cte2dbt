@@ -22,7 +22,7 @@ names of its models change; the table below maps 1.x to 2.0.
 | No dialect: names compared as written | `dialect` is required, and names compare as in that dialect |
 | A table without a schema gave `source('', ...)` | It is in `default_schema`, which is required |
 | Python 3.8 or later | Python 3.11 or later |
-| sqlglot not declared; 24.0 or later expected | sqlglot 30.x, declared, so that `pip install` brings it |
+| sqlglot not declared; 24.0 or later expected | sqlglot 30.19 or a later 30.x, declared, so that `pip install` brings it |
 | Importing the module configured logging at INFO level | The library neither configures logging nor logs |
 
 ### New

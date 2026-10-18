@@ -167,6 +167,16 @@ CASES = [
     ),
     pytest.param(
         TSQL,
+        [("dbo.v", "SELECT JSON_VALUE(j, '$.a') AS a, JSON_QUERY(j, '$.b') AS b FROM dbo.t")],
+        {
+            "v": "SELECT JSON_VALUE(j, '$.a') AS a, JSON_QUERY(j, '$.b') AS b"
+            ' FROM {{ source("dbo", "t") }} AS t'
+        },
+        [],
+        id="JSON functions are kept",
+    ),
+    pytest.param(
+        TSQL,
         [
             ("dbo.v2", "SELECT * FROM dbo.V1"),
             ("dbo.v1", "SELECT id FROM dbo.Sales"),
