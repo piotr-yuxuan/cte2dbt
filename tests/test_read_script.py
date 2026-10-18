@@ -205,7 +205,8 @@ def test_a_guarded_drop_is_skipped() -> None:
         ),
         pytest.param("CREATE LIVE VIEW lv AS SELECT 1 AS a", "clickhouse", id="a live view"),
         pytest.param(
-            "CREATE JSON RELATIONAL DUALITY VIEW dv AS SELECT d.id FROM dept d",
+            "CREATE JSON RELATIONAL DUALITY VIEW dv AS"
+            " SELECT JSON {'_id': d.deptno} FROM dept d WITH INSERT UPDATE DELETE",
             "oracle",
             id="an Oracle duality view",
         ),
@@ -214,6 +215,11 @@ def test_a_guarded_drop_is_skipped() -> None:
             " SELECT count(id) FROM t GROUP BY tumble(ts, INTERVAL '10' SECOND)",
             "clickhouse",
             id="a window view",
+        ),
+        pytest.param(
+            "CREATE VIEW main.v AS VALUES (1), (2) -- /* x\n",
+            "duckdb",
+            id="a block comment opened inside a line comment",
         ),
     ],
 )
