@@ -60,5 +60,7 @@ names of its models change; the table below maps 1.x to 2.0.
 
 ### Known limits
 
-The models return the rows of their views, but sqlglot prints their text anew. The
-[explanation](../explanation/conversion.md#limits) lists every limit.
+sqlglot prints each model anew, and prints a few T-SQL functions and types as
+near-equivalents that change results or that SQL Server rejects, such as `DATEPART(w, ...)`
+or `NTEXT`. Compare each model with its view on the database before relying on it. The
+[explanation](../explanation/conversion.md#limits) lists these cases and every other limit.

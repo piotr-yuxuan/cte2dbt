@@ -53,11 +53,14 @@ assert sorted(dbt_files(project)) == ["sources.yml", "v_sales.sql", "v_sales__a.
 
 ## Limits
 
-sqlglot parses each view and prints it again, so a model returns the same rows as the
-view it comes from but its text differs: layout, keyword case, comments, and sometimes
-an explicit cast. Only `CREATE VIEW` statements are converted; a table that cannot become
-a `ref()` or a `source()`, such as a table-valued function, is kept as written and
-reported. The [conversion rules](https://github.com/piotr-yuxuan/cte2dbt/blob/main/docs/reference/conversion-rules.md)
+sqlglot parses each view and prints it again. The text of a model differs from its view,
+and sqlglot prints a few T-SQL functions and types as near-equivalents that can change
+results or fail on SQL Server, such as `DATEPART(w, ...)` or `NTEXT`. The conversion is
+tested on DuckDB, not on SQL Server: compare each model with its view, as the
+[how-to guide](https://github.com/piotr-yuxuan/cte2dbt/blob/main/docs/how-to/convert-azure-sql-views.md#build-and-compare)
+shows, before relying on it. Only `CREATE VIEW` statements are converted; a table that
+cannot become a `ref()` or a `source()`, such as a table-valued function, is kept as
+written and reported. The [conversion rules](https://github.com/piotr-yuxuan/cte2dbt/blob/main/docs/reference/conversion-rules.md)
 list every case.
 
 ## Documentation

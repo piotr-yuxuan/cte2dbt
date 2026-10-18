@@ -71,10 +71,24 @@ allows such lists.
 ## Limits
 
 - sqlglot parses a view and prints it again, so the text of a model differs from the
-  original: layout, keyword case, comments in `/* */` form, and sometimes an explicit
-  cast, such as `DATEDIFF` arguments cast to `DATETIME2`. The rows are the same; the text
-  is not. Keeping the original text around each rewritten table would need a different
-  approach, recorded as future work.
+  original: layout, keyword case, and comments in `/* */` form. Worse, sqlglot 30 prints
+  some T-SQL as near-equivalents that change results or that SQL Server rejects:
+
+  | Written | Printed | Effect |
+  | --- | --- | --- |
+  | `DATEPART(w, d)` | `DATEPART(WEEK, d)` | The weekday becomes the week number. |
+  | `CAST(x AS NTEXT)`, `CAST(x AS TEXT)` | `CAST(x AS VARCHAR(MAX))` | Characters outside the code page are lost. |
+  | `SYSDATETIME()` | `GETDATE()` | Precision drops from 100 ns to about 3 ms. |
+  | `CAST(x AS REAL)` | `CAST(x AS FLOAT)` | Single becomes double precision. |
+  | `SQUARE(x)` | `POWER(x, 2)` | The result takes the type of `x` instead of `float`. |
+  | `DATEDIFF(day, a, b)` | `DATEDIFF(DAY, CAST(a AS DATETIME2), CAST(b AS DATETIME2))` | Text and `datetimeoffset` arguments convert differently. |
+  | `DATENAME(month, d)` | `FORMAT(CAST(d AS DATETIME2), 'MMMM')` | The name follows the culture of the session. |
+  | `SUSER_SNAME()`, `SUSER_NAME()`, `SYSTEM_USER` | `CURRENT_USER()` | SQL Server rejects it; the login would become the user. |
+  | `APPROX_COUNT_DISTINCT(x)` | `APPROX_DISTINCT(x)` | SQL Server rejects it. |
+
+  The list holds what was observed; it is not complete. Each model is equivalent to its
+  view only once compared on the database. Rewriting only the table names inside the
+  original text would avoid this, and is future work.
 - A `WITH` nested in a subquery stays inside its model; only the top-level common table
   expressions become models.
 - Two views with the same name in two schemas would give two models of one name, which is
@@ -82,7 +96,8 @@ allows such lists.
 - A view read through a three-part name, `database.schema.view`, becomes a source rather
   than a ref.
 - Table-valued functions, linked servers and temporary tables are kept as written; they
-  must be available where dbt builds the models.
+  must be available where dbt builds the models. Pseudo-tables are not recognised:
+  Oracle's `DUAL` and DuckDB's `FROM 'file.parquet'` become sources that do not exist.
 - Statements other than views are not converted, and `SET` options other than `ON` are not
   carried into the models.
 - Model names are not shortened; SQL Server names have at most 128 characters.

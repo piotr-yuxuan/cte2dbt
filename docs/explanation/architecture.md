@@ -29,11 +29,7 @@ them is also reported as a `cte2dbt:` warning or error.
 
 ## Failures
 
-| Failure | Exit code | Written |
-| --- | --- | --- |
-| Usage error, unknown dialect, output exists and is not empty | 2 | Nothing |
-| An input cannot be read, decoded or parsed | 1 | Nothing; every such input is reported |
-| No input defines a view | 1 | Nothing |
-| Conversion error: name clash, cycle, reserved text, ambiguous column | 1 | Nothing |
-| Writing a file fails | 1 | The files written before the failure |
-| Success, with or without warnings | 0 | Every model and `sources.yml` |
+Every input is read and every view converted in memory before the first file is written,
+so an error in a script or in the conversion leaves nothing behind. Only a failure while
+writing, such as a full disk, can leave some files. The
+[command-line reference](../reference/command-line.md#exit-codes) gives the exit codes.

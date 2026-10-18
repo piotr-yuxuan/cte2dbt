@@ -46,9 +46,10 @@ it.
   ignore in `pyproject.toml` needs a comment that justifies it.
 - **Input SQL is untrusted.** Parse it at the boundary, and fail rather than write a model
   that may not mean what the view meant.
-- sqlglot changes its API in minor versions. Support only the range in `pyproject.toml`,
-  and read sqlglot through its public properties, such as `Query.ctes`, rather than its
-  argument keys.
+- sqlglot changes its API in minor versions. Support only the range in `pyproject.toml`.
+  Prefer its public properties, such as `Query.ctes`; read or set an argument key only
+  where no property gives the node, and cover each such key with a test, which the
+  compatibility job runs at both ends of the range.
 
 ## Implement simply
 

@@ -39,23 +39,9 @@ capabilities, and no access to the container engine. Dependabot proposes updates
 uv dependencies, the actions and these images every Monday, for releases at least seven
 days old; nothing is merged automatically.
 
-## Run a job locally
-
-```sh
-uv run --locked python dev/scripts/check.py verify
-uv run --locked zizmor --offline .github
-bash dev/scripts/tool.sh actionlint -color .github/workflows/*.yml
-bash dev/scripts/tool.sh gitleaks git /repo --redact
-```
-
 `tool.sh` uses `docker` unless `CTE2DBT_CONTAINER_ENGINE` names another engine, such as
-`podman`. For one compatibility leg, in a scratch copy of the repository, so that the
-re-resolved lock is not committed:
-
-```sh
-UV_PYTHON=3.11 uv sync --resolution lowest-direct --upgrade --no-default-groups --group test
-UV_PYTHON=3.11 uv run --no-sync python -m pytest
-```
+`podman`. [The development procedure](../how-to/develop.md#run-the-ci-jobs-locally) shows
+how to run each job locally.
 
 ## Repository settings
 

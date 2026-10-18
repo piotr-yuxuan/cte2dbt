@@ -42,6 +42,25 @@ LD_LIBRARY_PATH="$NIX_LD_LIBRARY_PATH" uv run --locked python dev/scripts/check.
 
 Other Linux distributions provide the runtime through their system libraries.
 
+## Run the CI jobs locally
+
+The `checks` job, with a container engine for actionlint and gitleaks:
+
+```sh
+uv run --locked python dev/scripts/check.py verify
+uv run --locked zizmor --offline .github
+bash dev/scripts/tool.sh actionlint -color .github/workflows/*.yml
+bash dev/scripts/tool.sh gitleaks git /repo --redact
+```
+
+One leg of the `compatibility` job, in a scratch copy of the repository, so that the
+re-resolved lock is never committed:
+
+```sh
+UV_PYTHON=3.11 uv sync --resolution lowest-direct --upgrade --no-default-groups --group test
+UV_PYTHON=3.11 uv run --no-sync python -m pytest
+```
+
 ## Finalise, review and merge
 
 1. Update the documentation and the plan's outcome, then move the plan to

@@ -101,6 +101,14 @@ ephemeral model as a common table expression, and T-SQL cannot nest a `WITH` in 
 
 ## Build and compare
 
+Before relying on a model, compare it with its view on the database: sqlglot prints some
+T-SQL differently, as [the explanation](../explanation/conversion.md#limits) lists. To
+find the views that use such constructs, search the export:
+
+```sh
+grep -rliE 'DATEPART\(\s*w\s*,|N?TEXT\b|SYSDATETIME|\bREAL\b|SQUARE\(|DATEDIFF|DATENAME|SUSER_S?NAME|SYSTEM_USER|APPROX_COUNT_DISTINCT' exported/*/Views
+```
+
 Build into a development schema:
 
 ```sh
