@@ -50,6 +50,7 @@ dev = [
     "pip-audit>=2.10.1,<3",
     "pytest-cov>=7.1.0,<8",
     "ruff==0.17.1",
+    "sybil>=10.1.0,<11",
     # The build backend, so that the dependency audit covers it.
     "uv-build>=0.13.1,<0.14",
     "vulture>=2.16,<3",
@@ -74,8 +75,9 @@ ignore = [
 # Standard output and standard error are the interface of the command line.
 "src/cte2dbt/cli.py" = ["T201"]
 # Standalone scripts, not a package, that print their progress and run fixed tool commands;
-# the XML they parse is written by the same run's pytest and coverage.
-"dev/scripts/**" = ["INP001", "T201", "S603", "S607", "S314"]
+# the XML they parse is written by the same run's pytest and coverage, and the only URLs they
+# open are the http(s) links of the repository's own Markdown.
+"dev/scripts/**" = ["INP001", "T201", "S603", "S607", "S314", "S310"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "pep257"

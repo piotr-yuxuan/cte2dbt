@@ -120,16 +120,23 @@ def main() -> int:
     parser.add_argument(
         "mode",
         nargs="?",
-        choices=("fast", "security", "verify"),
+        choices=("fast", "docs", "security", "verify"),
         default="fast",
-        help="verify = fast + dead code (advisory) + security + package",
+        help="verify = fast + dead code (advisory) + docs + security + package",
     )
+    parser.add_argument("--external-links", action="store_true", help="also fetch web links")
     args = parser.parse_args()
+    if args.external_links and args.mode not in ("docs", "verify"):
+        parser.error("--external-links applies to docs or verify")
     try:
         if args.mode in ("fast", "verify"):
             fast()
         if args.mode == "verify":
             dead_code()
+        if args.mode in ("docs", "verify"):
+            # A separate process keeps this script free of third-party imports.
+            links = ["--external-links"] if args.external_links else []
+            run(sys.executable, str(ROOT / "dev/scripts/check_docs.py"), *links)
         if args.mode in ("security", "verify"):
             security()
         if args.mode == "verify":
