@@ -37,6 +37,11 @@ def test_an_ssms_export_gives_its_views_in_order() -> None:
         "v": ("v__a",),
         "w": (),
     }
+    assert {model.name: " ".join(model.sql.split()) for model in project.models} == {
+        "v__a": 'SELECT id FROM {{ source("dbo", "Sales") }} AS Sales',
+        "v": 'SELECT * FROM {{ ref("v__a") }} AS a',
+        "w": "SELECT 1 AS x",
+    }
 
 
 @pytest.mark.parametrize(
