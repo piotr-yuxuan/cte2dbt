@@ -170,10 +170,13 @@ def read_script(text: str, *, dialect: str) -> Script:
                 raise ParseError(msg)
             if settings and all(setting.endswith(" ON") for setting in settings):
                 continue
+            # A materialised view stores rows, and in ClickHouse is a trigger into another
+            # table: a model of its query would not mean what the view meant.
             if (
                 isinstance(statement, exp.Create)
                 and statement.kind == "VIEW"
                 and isinstance(statement.expression, exp.Query)
+                and statement.find(exp.MaterializedProperty) is None
             ):
                 name = statement.this
                 schema = name if isinstance(name, exp.Schema) else exp.Schema(this=name)

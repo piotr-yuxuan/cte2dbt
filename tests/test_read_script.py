@@ -222,6 +222,32 @@ def test_views_with_modifiers_sqlglot_keeps_as_text_fail(text: str, dialect: str
         read_script(text, dialect=dialect)
 
 
+@pytest.mark.parametrize(
+    ("text", "dialect"),
+    [
+        pytest.param(
+            "CREATE MATERIALIZED VIEW mv TO dest AS SELECT 1 AS a",
+            "clickhouse",
+            id="a ClickHouse view that writes into a table",
+        ),
+        pytest.param(
+            "CREATE MATERIALIZED VIEW ds.mv AS SELECT 1 AS a", "bigquery", id="a BigQuery view"
+        ),
+        pytest.param(
+            "CREATE OR REPLACE SECURE MATERIALIZED VIEW mv AS SELECT 1 AS a",
+            "snowflake",
+            id="a Snowflake view",
+        ),
+        pytest.param(
+            "CREATE MATERIALIZED VIEW mv AS SELECT 1 AS a", "postgres", id="a Postgres view"
+        ),
+    ],
+)
+def test_materialised_views_that_sqlglot_reads_fail(text: str, dialect: str) -> None:
+    with pytest.raises(ParseError, match="defines a view that cannot be read"):
+        read_script(text, dialect=dialect)
+
+
 def test_only_options_that_dbt_switches_on_are_flagged() -> None:
     script = read_script("SET ANSI_WARNINGS OFF\nGO\nSET NUMERIC_ROUNDABORT OFF", dialect="tsql")
     assert list(script.warnings) == [
