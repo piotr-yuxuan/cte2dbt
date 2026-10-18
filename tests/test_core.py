@@ -178,6 +178,25 @@ CASES = [
     pytest.param(
         TSQL,
         [
+            (
+                "dbo.v",
+                (
+                    "SELECT id FROM dbo.t1 UNION SELECT id FROM dbo.t2"
+                    " ORDER BY id OFFSET 1 ROWS FETCH NEXT 2 ROWS ONLY"
+                ),
+            )
+        ],
+        {
+            "v": 'SELECT id FROM {{ source("dbo", "t1") }} AS t1'
+            ' UNION SELECT id FROM {{ source("dbo", "t2") }} AS t2'
+            " ORDER BY id OFFSET 1 ROWS FETCH NEXT 2 ROWS ONLY"
+        },
+        [],
+        id="the paging of a union is kept",
+    ),
+    pytest.param(
+        TSQL,
+        [
             ("dbo.v2", "SELECT * FROM dbo.V1"),
             ("dbo.v1", "SELECT id FROM dbo.Sales"),
             ("dbo.v3", "SELECT * FROM other.v1"),
@@ -889,6 +908,16 @@ def test_sources_are_listed_once_per_table() -> None:
             ],
             "would bind to another table",
             id="a schema-qualified column in the ORDER BY of a union",
+        ),
+        pytest.param(
+            [
+                (
+                    "dbo.v",
+                    "SELECT dbo.t1.id FROM dbo.t1 UNION SELECT id FROM dbo.t1 ORDER BY dbo.t1.id",
+                )
+            ],
+            "would bind to another table",
+            id="the same column in the ORDER BY of a union whose branches read its table",
         ),
         pytest.param(
             [("dbo.v", "SELECT '__cte2dbt_0__' AS x")],

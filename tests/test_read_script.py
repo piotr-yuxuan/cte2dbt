@@ -272,6 +272,25 @@ def test_materialised_views_that_sqlglot_reads_fail(text: str, dialect: str) -> 
         read_script(text, dialect=dialect)
 
 
+@pytest.mark.parametrize(
+    ("text", "dialect"),
+    [
+        pytest.param(
+            "CREATE OR REPLACE VIEW public.v AS SELECT 1 AS a", "postgres", id="OR REPLACE"
+        ),
+        pytest.param("CREATE TEMPORARY VIEW v AS SELECT 1 AS a", "spark", id="TEMPORARY"),
+        pytest.param("CREATE SECURE VIEW v AS SELECT 1 AS a", "snowflake", id="SECURE"),
+        pytest.param(
+            "CREATE OR REPLACE FORCE VIEW v AS SELECT 1 AS a FROM dual", "oracle", id="FORCE"
+        ),
+    ],
+)
+def test_views_with_modifiers_that_sqlglot_reads_are_read(text: str, dialect: str) -> None:
+    script = read_script(text, dialect=dialect)
+    assert [view.name.name for view in script.views] == ["v"]
+    assert script.warnings == ()
+
+
 def test_a_materialized_cte_does_not_make_a_materialised_view() -> None:
     script = read_script(
         "CREATE VIEW v AS WITH c AS MATERIALIZED (SELECT 1 AS a) SELECT * FROM c",
