@@ -23,9 +23,12 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
 `convert` classifies each table that a query reads once, in this order:
 
 1. **Kept as written**, with the warning `MODEL: ITEM kept as written`: a table-valued
-   function or other call such as `OPENJSON`, a four-part linked-server name, a table
-   variable, a temporary table (`#t`, `##t`), and the target of `SELECT INTO`.
-2. **Local**: a one-part name declared by a `WITH` nested inside the query stays as it is.
+   function or other call such as `OPENJSON`, also under `CROSS APPLY` or `OUTER APPLY`, a
+   four-part linked-server name, a table variable, a temporary table (`#t`, `##t`), and the
+   target of `SELECT INTO`.
+2. **Local**: a one-part name declared by a `WITH` nested inside the query stays as it
+   is. Inside the definition of one of its common table expressions, only the expressions
+   before it are declared, and itself where it is recursive, as for the top level below.
 3. **Recursion**: the name of the common table expression being defined, in T-SQL,
    Fabric, Oracle, Snowflake and SQLite, or under `WITH RECURSIVE` in any dialect. The
    expression becomes a recursive model, below.
@@ -42,7 +45,9 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
   `tsql, normalization_strategy=case_sensitive`.
 - A table without a schema, or with an empty one as in T-SQL `database..table`, is in the
   default schema.
-- A source keeps the spelling of its first occurrence in the whole conversion.
+- A source keeps the spelling of its first occurrence in the whole conversion. Two tables
+  that the dialect tells apart but that are spelt alike, such as `Foo` and `"Foo"` in
+  Postgres, are an error, as `sources.yml` could not tell them apart.
 
 ## Rewriting
 
@@ -50,12 +55,16 @@ each view. The [explanation](../explanation/conversion.md) gives the reasons.
   `FOR SYSTEM_TIME`, `PIVOT` and `UNPIVOT`, `TABLESAMPLE`, joins, the alias and its column
   list are kept.
 - A rewritten table without an alias takes its written name as alias, and a column
-  qualified as `schema.table.column` becomes `table.column`. When the same name is exposed
-  twice in the query, so that the column would bind to another table, this is an error.
+  qualified by the full name of that table, as `schema.table.column`, becomes
+  `table.column`. A column binds to the innermost `SELECT` that exposes its table's name:
+  when that `SELECT` exposes the name more than once, or for another table, so that the
+  shortened column would bind elsewhere, this is an error. A qualifier that names another
+  table, such as a property of a column, is left as it is.
 - A common table expression or a view with a column list becomes
   `SELECT * FROM (QUERY) AS NAME(COLUMNS)`.
 - A recursive common table expression becomes `WITH NAME AS (QUERY) SELECT * FROM NAME`,
-  with `RECURSIVE` only where it was written. No model refs itself.
+  with `RECURSIVE` only where it was written, and with its `MATERIALIZED`, `USING KEY`,
+  `SEARCH` and `CYCLE` clauses. No model refs itself.
 - `{{`, `{%` and `{#` in strings, comments and names are written `{{ '{' }}{`,
   `{{ '{' }}%` and `{{ '{' }}#`, so that dbt prints them unchanged.
 - The arguments of `ref()` and `source()` are double-quoted strings, escaped as in JSON.

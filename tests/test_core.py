@@ -6,6 +6,7 @@ import re
 import pytest
 import sqlglot
 from sqlglot import exp
+from sqlglot.errors import UnsupportedError
 
 from cte2dbt import Project, Source, View, convert
 
@@ -417,6 +418,99 @@ CASES += [
 ]
 
 
+CASES += [
+    pytest.param(
+        TSQL,
+        [("dbo.v", "SELECT dbo.t1.id FROM dbo.t1 UNION ALL SELECT dbo.t1.id FROM dbo.t1")],
+        {
+            "v": 'SELECT t1.id FROM {{ source("dbo", "t1") }} AS t1'
+            ' UNION ALL SELECT t1.id FROM {{ source("dbo", "t1") }} AS t1'
+        },
+        [],
+        id="each branch of a union requalifies its own columns",
+    ),
+    pytest.param(
+        TSQL,
+        [
+            (
+                "dbo.v",
+                (
+                    "SELECT dbo.t1.id FROM dbo.t1"
+                    " WHERE dbo.t1.id IN (SELECT id FROM dbo.t1 WHERE x > 10)"
+                ),
+            )
+        ],
+        {
+            "v": 'SELECT t1.id FROM {{ source("dbo", "t1") }} AS t1 WHERE t1.id IN'
+            ' (SELECT id FROM {{ source("dbo", "t1") }} AS t1 WHERE x > 10)'
+        },
+        [],
+        id="a subquery over the same table does not hide the outer one",
+    ),
+    pytest.param(
+        TSQL,
+        [("dbo.v", "SELECT other.Sales.id, s.Location.Lat FROM dbo.Sales CROSS JOIN dbo.s")],
+        {
+            "v": 'SELECT other.Sales.id, s.Location.Lat FROM {{ source("dbo", "Sales") }}'
+            ' AS Sales CROSS JOIN {{ source("dbo", "s") }} AS s'
+        },
+        [],
+        id="a qualifier is shortened only when it names the same table",
+    ),
+    pytest.param(
+        DUCKDB,
+        [
+            (
+                "main.v",
+                (
+                    "WITH a AS (SELECT * FROM"
+                    " (WITH orders AS (SELECT * FROM orders WHERE amount > 10)"
+                    " SELECT * FROM orders) q)"
+                    " SELECT * FROM a"
+                ),
+            )
+        ],
+        {
+            "v__a": "SELECT * FROM (WITH orders AS (SELECT * FROM"
+            ' {{ source("main", "orders") }} AS orders WHERE amount > 10)'
+            " SELECT * FROM orders) AS q",
+            "v": 'SELECT * FROM {{ ref("v__a") }} AS a',
+        },
+        [],
+        id="a nested CTE does not see itself without RECURSIVE",
+    ),
+    pytest.param(
+        ("postgres", "public"),
+        [
+            (
+                "v",
+                (
+                    "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)"
+                    " SEARCH DEPTH FIRST BY n SET ord SELECT n, ord FROM r"
+                ),
+            )
+        ],
+        {
+            "v__r": "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)"
+            " SEARCH DEPTH FIRST BY n SET ord SELECT * FROM r",
+            "v": 'SELECT n, ord FROM {{ ref("v__r") }} AS r',
+        },
+        [],
+        id="a recursive CTE keeps its SEARCH clause",
+    ),
+    pytest.param(
+        TSQL,
+        [("dbo.v", "SELECT t.id, f.x FROM dbo.t AS t CROSS APPLY dbo.fn_tvf(t.id) AS f")],
+        {
+            "v": 'SELECT t.id, f.x FROM {{ source("dbo", "t") }} AS t'
+            " CROSS APPLY dbo.fn_tvf(t.id) AS f"
+        },
+        ["v: CROSS APPLY dbo.fn_tvf(t.id) AS f kept as written"],
+        id="a function under APPLY is reported",
+    ),
+]
+
+
 @pytest.mark.parametrize("dialect", ["tsql", "oracle", "snowflake", "sqlite"])
 def test_a_self_reference_is_recursion_where_no_keyword_is_needed(dialect: str) -> None:
     project = convert(
@@ -512,6 +606,11 @@ def test_sources_are_listed_once_per_table() -> None:
             id="views of the same name in two schemas",
         ),
         pytest.param(
+            [("dbo.v", "SELECT 1 AS x"), ("sales.V", "SELECT 2 AS x")],
+            "two models would be named V",
+            id="views of the same name in another case",
+        ),
+        pytest.param(
             [("dbo.a", "SELECT * FROM dbo.b"), ("dbo.b", "SELECT * FROM dbo.a")],
             "cycle",
             id="views reading one another",
@@ -567,3 +666,27 @@ def test_results_are_frozen() -> None:
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
         project.models[0].name = "w"  # type: ignore[misc]
+
+
+def test_quoted_and_unquoted_names_of_two_tables_are_not_merged() -> None:
+    with pytest.raises(ValueError, match="two different tables would be the one source Foo"):
+        convert(
+            views("postgres", ("v", 'SELECT * FROM Foo JOIN "Foo" ON TRUE')),
+            dialect="postgres",
+            default_schema="public",
+        )
+
+
+def test_sql_that_the_dialect_cannot_print_is_an_error() -> None:
+    query = sqlglot.parse_one("SELECT * FROM dbo.t PIVOT (SUM(a) FOR m IN ([1])) AS p", read="tsql")
+    assert isinstance(query, exp.Query)
+    with pytest.raises(UnsupportedError):
+        convert([View(exp.to_table("v"), query)], dialect="sqlite", default_schema="main")
+
+
+def test_the_target_of_select_into_is_kept() -> None:
+    query = sqlglot.parse_one("SELECT a INTO dbo.archive FROM dbo.s", read="tsql")
+    assert isinstance(query, exp.Query)
+    project = convert([View(exp.to_table("v"), query)], dialect="tsql", default_schema="dbo")
+    assert project.warnings == ("v: dbo.archive kept as written",)
+    assert project.sources == (Source("", "dbo", "s"),)

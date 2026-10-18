@@ -4,7 +4,6 @@ import graphlib
 import itertools
 import json
 import re
-from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
@@ -97,6 +96,7 @@ class _Conversion:
     default_schema: str
     views: dict[tuple[str, ...], str] = field(default_factory=dict)
     spellings: dict[tuple[str, ...], str] = field(default_factory=dict)
+    owners: dict[Source, tuple[str, ...]] = field(default_factory=dict)
     models: dict[str, Model] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -107,6 +107,7 @@ class _Links:
     refs: set[str] = field(default_factory=set)
     sources: set[Source] = field(default_factory=set)
     recursive: bool = False
+    aliased: dict[int, tuple[str, ...]] = field(default_factory=dict)
 
 
 def read_script(text: str, *, dialect: str) -> Script:
@@ -204,18 +205,27 @@ def convert(views: Iterable[View], *, dialect: str, default_schema: str) -> Proj
             links = _rewrite(
                 cte.this, visible, own if implicit or explicit else None, conversion, name
             )
-            body = (
-                exp.select("*")
-                .from_(exp.Table(this=alias.this.copy()))
-                .with_(alias, as_=cte.this, recursive=explicit)
-                if links.recursive
-                else _wrap(cte.this, alias)
-                if alias.columns
-                else cte.this
-            )
+            _requalify(cte.this, links, conversion, name)
+            body = _wrap(cte.this, alias) if alias.columns else cte.this
+            if links.recursive:
+                # Keep the CTE node, with any MATERIALIZED or USING KEY, and the SEARCH and
+                # CYCLE that sqlglot stores on the WITH after its last CTE. "with_" is the
+                # key of every supported sqlglot; the compatibility tests guard it.
+                last = isinstance(clause, exp.With) and cte is ctes[-1]
+                body = exp.select("*").from_(exp.Table(this=alias.this.copy()))
+                body.set(
+                    "with_",
+                    exp.With(
+                        expressions=[cte],
+                        recursive=explicit,
+                        search=clause.args.get("search") if last and clause else None,
+                        cycle=clause.args.get("cycle") if last and clause else None,
+                    ),
+                )
             _add(conversion, name, body, links)
             visible[own] = name
         links = _rewrite(query, visible, None, conversion, prefix)
+        _requalify(query, links, conversion, prefix)
         columns = [column.copy() for column in view.columns]
         alias = exp.TableAlias(this=view.name.this.copy(), columns=columns)
         _add(conversion, prefix, _wrap(query, alias) if columns else query, links)
@@ -268,8 +278,8 @@ def _rewrite(
 ) -> _Links:
     # Classify each table once, then point it at a placeholder for its ref() or source().
     dialect = conversion.dialect
+    implicit = isinstance(dialect, _RECURSIVE_WITHOUT_KEYWORD)
     links = _Links()
-    aliased: set[str] = set()
     for table in list(body.find_all(exp.Table)):
         name = table.this
         if (
@@ -283,14 +293,20 @@ def _rewrite(
             continue
         key, written = _relation(table, conversion)
         single = len(table.parts) == 1
-        scope = table.parent
-        while scope is not None and not (
-            isinstance(scope, exp.Query)
-            and key[-1] in {_key(cte.args["alias"].this, dialect) for cte in scope.ctes}
-        ):
+        # Walk out through the WITH clauses nested in the body. From inside a CTE, only the
+        # CTEs before it are visible, and itself when its WITH is recursive.
+        scope, through, local = table.parent, None, False
+        while scope is not None and not local:
+            ctes = scope.ctes if isinstance(scope, exp.Query) else []
+            names = [_key(cte.args["alias"].this, dialect) for cte in ctes]
+            clause = ctes[0].parent if ctes else None
+            itself = implicit or (isinstance(clause, exp.With) and clause.recursive)
+            end = next((i + itself for i, cte in enumerate(ctes) if cte is through), len(names))
+            local = key[-1] in names[:end]
+            through = scope if isinstance(scope, exp.CTE) else through
             scope = scope.parent
-        if single and (scope is not None or key[-1] == own):
-            links.recursive = links.recursive or scope is None
+        if single and (local or key[-1] == own):
+            links.recursive = links.recursive or not local
             continue
         target = (visible.get(key[-1]) if single else None) or conversion.views.get(key)
         if target:
@@ -303,33 +319,57 @@ def _rewrite(
                     for i, part in enumerate(written)
                 )
             )
+            if conversion.owners.setdefault(source, key) != key:
+                msg = f"{model}: two different tables would be the one source {source.table}"
+                raise ValueError(msg)
             links.sources.add(source)
             links.targets.append(
                 f"{{{{ source({_literal(source.source_name)}, {_literal(source.table)}) }}}}"
             )
         if not table.alias:
             table.set("alias", exp.TableAlias(this=name.copy()))
-            aliased.add(key[-1])
+            links.aliased[id(table.args["alias"])] = key
         table.set("this", exp.to_identifier(f"__cte2dbt_{len(links.targets) - 1}__"))
         table.set("db", None)
         table.set("catalog", None)
-    exposed = Counter(
-        _key(alias.this, dialect)
-        for alias in body.find_all(exp.TableAlias)
-        if isinstance(alias.this, exp.Identifier)
+    conversion.warnings.extend(
+        f"{model}: {lateral.sql(dialect=dialect, normalize_functions=False)} kept as written"
+        for lateral in body.find_all(exp.Lateral)
+        if not isinstance(lateral.this, exp.Subquery)
     )
-    for column in body.find_all(exp.Column):
-        qualifier = _key(column.args["table"], dialect) if column.args.get("db") else None
-        if qualifier in aliased and exposed[qualifier] > 1:
+    return links
+
+
+def _requalify(body: exp.Query, links: _Links, conversion: _Conversion, model: str) -> None:
+    # A table that received its written name as alias is exposed by that name alone: drop
+    # the schema from each column qualified by the full name of that table.
+    dialect = conversion.dialect
+    for column in list(body.find_all(exp.Column)):
+        if not column.args.get("db"):
+            continue
+        key = _relation(column, conversion)[0]
+        if key not in links.aliased.values():
+            continue
+        # The column binds to the innermost SELECT that exposes its table's name.
+        scope = column.find_ancestor(exp.Select)
+        exposed: list[exp.TableAlias] = []
+        while scope is not None and not exposed:
+            exposed = [
+                alias
+                for alias in scope.find_all(exp.TableAlias)
+                if alias.find_ancestor(exp.Select) is scope
+                and isinstance(alias.this, exp.Identifier)
+                and _key(alias.this, dialect) == key[-1]
+            ]
+            scope = scope.find_ancestor(exp.Select)
+        if [links.aliased.get(id(alias)) for alias in exposed] != [key]:
             msg = (
                 f"{model}: {column.sql(dialect=dialect)} would bind to another table once its"
                 " schema is dropped; give the tables aliases"
             )
             raise ValueError(msg)
-        if qualifier in aliased:
-            column.set("db", None)
-            column.set("catalog", None)
-    return links
+        column.set("db", None)
+        column.set("catalog", None)
 
 
 def _add(conversion: _Conversion, name: str, body: exp.Query, links: _Links) -> None:
@@ -353,12 +393,15 @@ def _add(conversion: _Conversion, name: str, body: exp.Query, links: _Links) -> 
     )
 
 
-def _relation(table: exp.Table, conversion: _Conversion) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    # (database, schema, name) as compared and as written; T-SQL's db..name has an empty schema.
+def _relation(
+    node: exp.Table | exp.Column, conversion: _Conversion
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    # (database, schema, name) of a table, or of the table qualifying a column, as compared
+    # and as written; T-SQL's db..name has an empty schema.
     parts = (
-        table.args.get("catalog") or exp.to_identifier(""),
-        table.args.get("db") or exp.to_identifier(conversion.default_schema),
-        table.this,
+        node.args.get("catalog") or exp.to_identifier(""),
+        node.args.get("db") or exp.to_identifier(conversion.default_schema),
+        node.args["table"] if isinstance(node, exp.Column) else node.this,
     )
     return tuple(_key(part, conversion.dialect) for part in parts), tuple(p.name for p in parts)
 

@@ -5,6 +5,7 @@ as the converted models, rendered by jinja2 and created as views in dependency o
 T-SQL is transpiled to DuckDB on both sides, so it checks the conversion, not SQL Server.
 """
 
+import sys
 from typing import TYPE_CHECKING
 
 import jinja2
@@ -18,7 +19,10 @@ from cte2dbt import Project, Source, View, convert, read_script
 if TYPE_CHECKING:
     from duckdb import DuckDBPyConnection
 
-duckdb = pytest.importorskip("duckdb")
+if sys.version_info >= (3, 15):  # DuckDB has no wheel for Python 3.15 yet.
+    duckdb = pytest.importorskip("duckdb")
+else:
+    import duckdb
 
 TABLES = """
 CREATE SCHEMA raw;
@@ -33,7 +37,8 @@ CREATE TABLE dbo.t1 AS SELECT * FROM raw.t1;
 
 JINJA = jinja2.Environment(undefined=jinja2.StrictUndefined, autoescape=False)
 
-Rows = list[tuple[object, ...]]
+Rows = tuple[list[str], list[tuple[object, ...]]]
+"""The column names of a relation, ignoring case, and its rows in a stable order."""
 
 
 def connect() -> "DuckDBPyConnection":
@@ -43,7 +48,9 @@ def connect() -> "DuckDBPyConnection":
 
 
 def rows(connection: "DuckDBPyConnection", relation: str) -> Rows:
-    return sorted(connection.execute(f"SELECT * FROM {relation}").fetchall(), key=repr)
+    cursor = connection.execute(f"SELECT * FROM {relation}")
+    names = [column[0].casefold() for column in cursor.description]
+    return names, sorted(cursor.fetchall(), key=repr)
 
 
 def original_rows(script: str, dialect: str, last: View) -> Rows:
@@ -125,6 +132,24 @@ DUCKDB_VIEWS = {
         " c AS (SELECT a.id, b.y FROM a JOIN b ON a.id = b.id) SELECT * FROM c"
     ),
     "a self-join": "SELECT l.id, r.y FROM raw.t1 AS l JOIN raw.t2 AS r ON l.id = r.id",
+    "a struct field named like a table": (
+        "SELECT u.t2.y AS y FROM raw.t2 CROSS JOIN (SELECT {'y': 'z'} AS t2) AS u"
+    ),
+    "a nested CTE reading the outer CTE of its name": (
+        "WITH orders AS (SELECT 1 AS id),"
+        " a AS (WITH orders AS (SELECT id + 1 AS id FROM orders) SELECT * FROM orders)"
+        " SELECT * FROM a"
+    ),
+    "a nested CTE reading the table of its name": (
+        "WITH a AS (SELECT * FROM"
+        " (WITH orders AS (SELECT * FROM orders WHERE amount > 10) SELECT * FROM orders) AS q)"
+        " SELECT * FROM a"
+    ),
+    "a recursive CTE with USING KEY": (
+        "WITH RECURSIVE tbl(a, b) USING KEY (a) AS"
+        " (SELECT a, b FROM (VALUES (1, 3), (2, 4)) AS t(a, b)"
+        " UNION SELECT a + 1, b FROM tbl WHERE a < 3) SELECT * FROM tbl"
+    ),
 }
 
 
@@ -158,6 +183,12 @@ TSQL_VIEWS = {
         "WITH top2 AS (SELECT TOP 2 id, x FROM dbo.t1 ORDER BY id DESC) SELECT * FROM top2"
     ),
     "a CTE column list": "WITH c (a, b) AS (SELECT id, x FROM dbo.t1) SELECT a, b FROM c",
+    "schema-qualified columns in a union": (
+        "SELECT dbo.t1.id FROM dbo.t1 UNION ALL SELECT dbo.t1.id FROM dbo.t1"
+    ),
+    "a subquery over the same table": (
+        "SELECT dbo.t1.id FROM dbo.t1 WHERE dbo.t1.id IN (SELECT id FROM dbo.t1 WHERE x > 10)"
+    ),
 }
 
 
