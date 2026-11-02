@@ -37,7 +37,7 @@ Issues = "https://github.com/piotr-yuxuan/cte2dbt/issues"
 "Release notes" = "https://github.com/piotr-yuxuan/cte2dbt/blob/main/docs/reference/release-notes.md"
 
 [build-system]
-requires = ["uv_build>=0.13.1,<0.14"]
+requires = ["uv_build>=0.13.5,<0.14"]
 build-backend = "uv_build"
 
 [dependency-groups]
@@ -57,7 +57,7 @@ dev = [
     "ruff==0.17.1",
     "sybil>=10.1.0,<11",
     # The build backend, so that the dependency audit covers it.
-    "uv-build>=0.13.1,<0.14",
+    "uv-build>=0.13.5,<0.14",
     "vulture>=2.16,<3",
     "zizmor>=1.31.1,<2",
 ]
